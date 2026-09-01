@@ -536,194 +536,149 @@ export default function LocationPicker() {
   | CURRENT LOCATION
   |--------------------------------------------------------------------------
   */
+const useCurrentLocation = async () => {
+  if (locationType !== 'pickup') {
+    return;
+  }
 
-  const useCurrentLocation = async () => {
+  try {
+    setLoading(true);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ask browser/device for the real GPS location
+    |--------------------------------------------------------------------------
+    */
 
     if (
-      locationType !==
-      'pickup'
+      typeof navigator === 'undefined' ||
+      !navigator.geolocation
     ) {
-
-      return;
-
+      throw new Error(
+        'Location services are not available',
+      );
     }
 
-
-    try {
-
-      setLoading(true);
-
-
-      /*
-      |--------------------------------------------------------------------------
-      | Browser GPS
-      |--------------------------------------------------------------------------
-      */
-
-      if (
-        typeof navigator !==
-        'undefined' &&
-        navigator.geolocation
-      ) {
-
-        await new Promise<void>(
-          (
+    const position =
+      await new Promise<GeolocationPosition>(
+        (resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
             resolve,
-          ) => {
-
-            navigator.geolocation.getCurrentPosition(
-
-              async (
-                position,
-              ) => {
-
-                const latitude =
-                  position.coords.latitude;
-
-                const longitude =
-                  position.coords.longitude;
-
-
-                /*
-                |--------------------------------------------------------------
-                | Reverse geocode using Google
-                |--------------------------------------------------------------
-                */
-
-                try {
-
-                  const response =
-                    await fetch(
-                      `https://geocode.googleapis.com/v4beta/geocode/location?location.latitude=${latitude}&location.longitude=${longitude}`,
-                      {
-                        headers: {
-                          'X-Goog-Api-Key':
-                            GOOGLE_API_KEY || '',
-                        },
-                      },
-                    );
-
-
-                  const data =
-                    await response.json();
-
-
-                  const address =
-                    data.results?.[0]
-                      ?.formattedAddress ||
-                    'Current location';
-
-
-                  const currentLocation:
-                    LocationResult = {
-
-                    id:
-                      'current-location',
-
-                    name:
-                      'Current location',
-
-                    address,
-
-                    latitude,
-
-                    longitude,
-
-                  };
-
-
-                  setSelected(
-                    currentLocation,
-                  );
-
-                  setQuery(
-                    'Current location',
-                  );
-
-                } catch {
-
-                  const currentLocation:
-                    LocationResult = {
-
-                    id:
-                      'current-location',
-
-                    name:
-                      'Current location',
-
-                    address:
-                      'GPS location',
-
-                    latitude,
-
-                    longitude,
-
-                  };
-
-
-                  setSelected(
-                    currentLocation,
-                  );
-
-                  setQuery(
-                    'Current location',
-                  );
-
-                }
-
-
-                setResults([]);
-
-                setLoading(false);
-
-                resolve();
-
-              },
-
-              () => {
-
-                setLoading(false);
-
-                resolve();
-
-              },
-
-              {
-                enableHighAccuracy:
-                  true,
-
-                timeout:
-                  10000,
-
-                maximumAge:
-                  30000,
-
-              },
-
-            );
-
-          },
-        );
-
-        return;
-
-      }
-
-
-    } catch (error) {
-
-      console.error(
-        'Current location error:',
-        error,
+            reject,
+            {
+              enableHighAccuracy: true,
+              timeout: 15000,
+              maximumAge: 30000,
+            },
+          );
+        },
       );
 
+    const latitude =
+      position.coords.latitude;
+
+    const longitude =
+      position.coords.longitude;
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Reverse geocode GPS coordinates
+    |--------------------------------------------------------------------------
+    */
+
+    if (!GOOGLE_API_KEY) {
+      throw new Error(
+        'Google API key is missing',
+      );
     }
 
+    const response = await fetch(
+      `https://geocode.googleapis.com/v4beta/geocode/location?location.latitude=${latitude}&location.longitude=${longitude}`,
+      {
+        headers: {
+          'X-Goog-Api-Key':
+            GOOGLE_API_KEY,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        'Unable to find your address',
+      );
+    }
+
+    const data =
+      await response.json();
+
+    const address =
+      data.results?.[0]?.formattedAddress ||
+      'Current location';
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Create selected location
+    |--------------------------------------------------------------------------
+    */
+
+    const currentLocation: LocationResult = {
+      id: 'current-location',
+
+      name: 'Current location',
+
+      address,
+
+      latitude,
+
+      longitude,
+    };
+
+
+    setSelected(
+      currentLocation,
+    );
+
+    setQuery(
+      'Current location',
+    );
+
+    setResults([]);
+
+    setSearched(false);
+
+  } catch (error) {
+
+    console.error(
+      'Current location error:',
+      error,
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | If GPS fails, don't silently select a fake location.
+    |--------------------------------------------------------------------------
+    */
+
+    setSelected(null);
+
+    setQuery('');
+
+    setResults([]);
+
+    setSearched(true);
+
+    alert(
+      'Unable to get your current location. Please allow location access and try again.',
+    );
+
+  } finally {
 
     setLoading(false);
 
-  };
-
+  }
+};
 
   /*
   |--------------------------------------------------------------------------

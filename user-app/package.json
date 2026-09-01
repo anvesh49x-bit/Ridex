@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo/ui": "~57.0.14",
     "@expo/vector-icons": "^15.0.2",
+    "@vis.gl/react-google-maps": "^1.9.0",
     "expo": "~57.0.18",
     "expo-constants": "~57.0.16",
     "expo-device": "~57.0.1",
