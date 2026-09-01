@@ -7,9 +7,11 @@
     "icon": "./assets/images/icon.png",
     "scheme": "ridex",
     "userInterfaceStyle": "automatic",
+
     "ios": {
       "icon": "./assets/expo.icon"
     },
+
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -20,13 +22,30 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.ridex"
     },
+
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+
     "plugins": [
-      "expo-router"
+      "expo-router",
+
+      [
+        "react-native-maps",
+        {
+          "androidGoogleMapsApiKey": "AIzaSyCXLhrAlDONOp05TARgD17aytbEZ_A9UzM"
+        }
+      ],
+
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Ridex to use your location to find pickup and drop locations."
+        }
+      ]
     ],
+
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

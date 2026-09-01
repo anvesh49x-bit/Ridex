@@ -1,32 +1,20 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { router } from 'expo-router';
+import RidexSplash from '../components/RidexSplash';
 
 export default function Index() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>RIDEX</Text>
-      <Text style={styles.subtitle}>User App</Text>
-    </View>
-  );
+  const [showSplash, setShowSplash] = useState(true);
+
+  if (showSplash) {
+    return (
+      <RidexSplash
+        onFinish={() => {
+          setShowSplash(false);
+          router.replace('/auth');
+        }}
+      />
+    );
+  }
+
+  return null;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#111820',
-  },
-
-  subtitle: {
-    marginTop: 8,
-    fontSize: 16,
-    color: '#666666',
-  },
-});
