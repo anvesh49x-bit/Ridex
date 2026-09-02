@@ -1468,89 +1468,112 @@ export default function TripDetailsScreen() {
      BACK BUTTON END
      ========================================================================= */
 
+/* =========================================================================
+   CONTINUE BUTTON START
+   =========================================================================
 
-  /* =========================================================================
-     CONTINUE BUTTON START
-     =========================================================================
+   Sends the real Google route + fare data to Your Offer.
 
-     IMPORTANT:
+   ========================================================================= */
 
-     The next "Your Offer" page is intentionally NOT implemented yet.
+const handleContinue =
+  useCallback(() => {
 
-     For now, pressing the button confirms that the pricing engine is
-     working and shows the calculated values.
-
-     ========================================================================= */
-
-  const handleContinue =
-    useCallback(() => {
-
-      if (!suggestedFare) {
-
-        Alert.alert(
-          'Fare unavailable',
-          'Please wait for the route and fare to finish calculating.',
-        );
-
-        return;
-
-      }
-
-
-      console.log(
-        'RIDEX READY FOR OFFER PAGE:',
-        {
-
-          vehicle:
-            selectedVehicle,
-
-          distance:
-            routeInfo?.distanceMeters,
-
-          duration:
-            routeInfo?.durationSeconds,
-
-          minimumFare:
-            suggestedFare.minimum,
-
-          recommendedFare:
-            suggestedFare.recommended,
-
-          maximumFare:
-            suggestedFare.maximum,
-
-        },
-      );
-
+    if (!suggestedFare) {
 
       Alert.alert(
-
-        'Suggested Fare',
-
-        `${selectedVehicle === 'bike'
-          ? 'Bike'
-          : 'Auto'}\n\n` +
-
-        `${routeInfo?.distanceText || ''} • ` +
-
-        `${routeInfo?.durationText || ''}\n\n` +
-
-        `Suggested: ₹${suggestedFare.minimum} – ₹${suggestedFare.maximum}\n` +
-
-        `Recommended: ₹${suggestedFare.recommended}`,
-
+        'Fare unavailable',
+        'Please wait for the route and fare to finish calculating.',
       );
 
-    }, [
+      return;
 
-      suggestedFare,
+    }
 
-      selectedVehicle,
 
-      routeInfo,
+    if (!routeInfo) {
 
-    ]);
+      Alert.alert(
+        'Route unavailable',
+        'Please wait for the route to finish calculating.',
+      );
 
+      return;
+
+    }
+
+
+    router.push({
+
+      pathname: '/make-offer',
+
+      params: {
+
+        pickupName:
+          pickupName,
+
+        pickupAddress:
+          pickupAddress,
+
+        dropName:
+          dropName,
+
+        dropAddress:
+          dropAddress,
+
+        distanceText:
+          routeInfo.distanceText,
+
+        durationText:
+          routeInfo.durationText,
+
+        minFare:
+          String(
+            suggestedFare.minimum,
+          ),
+
+        maxFare:
+          String(
+            suggestedFare.maximum,
+          ),
+
+        suggestedFare:
+          String(
+            suggestedFare.recommended,
+          ),
+
+        vehicle:
+          selectedVehicle,
+
+      },
+
+    });
+
+  }, [
+
+    router,
+
+    suggestedFare,
+
+    routeInfo,
+
+    pickupName,
+
+    pickupAddress,
+
+    dropName,
+
+    dropAddress,
+
+    selectedVehicle,
+
+  ]);
+
+/* =========================================================================
+   CONTINUE BUTTON END
+   ========================================================================= */
+  /* =========================================================================
+  
   /* =========================================================================
      CONTINUE BUTTON END
      ========================================================================= */
