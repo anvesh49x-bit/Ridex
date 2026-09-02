@@ -28,6 +28,7 @@ import {
   AdvancedMarker,
   Map,
   Polyline,
+  useMap,
 } from '@vis.gl/react-google-maps';
 
 
@@ -129,6 +130,55 @@ const COLORS = {
 
 
 /* =========================================================================
+
+   RIDEX MAP HELPERS START
+
+   ========================================================================= */
+
+function MapBoundsUpdater({ viewport }: { viewport: any }) {
+
+  const map = useMap();
+
+  useEffect(() => {
+
+    if (map && viewport) {
+
+      if (viewport.low && viewport.high) {
+
+        map.fitBounds({
+
+          south: viewport.low.lat,
+
+          west: viewport.low.lng,
+
+          north: viewport.high.lat,
+
+          east: viewport.high.lng,
+
+        });
+
+      } else {
+
+        map.fitBounds(viewport);
+
+      }
+
+    }
+
+  }, [map, viewport]);
+
+  return null;
+
+}
+
+/* =========================================================================
+
+   RIDEX MAP HELPERS END
+
+   ========================================================================= */
+
+
+/* =========================================================================
    RIDEX TYPES START
    ========================================================================= */
 
@@ -172,6 +222,8 @@ type RouteInfo = {
   durationSeconds: number;
 
   polyline: Coordinates[];
+
+  viewport?: any;
 
 };
 
@@ -650,7 +702,13 @@ async function calculateGoogleRoute(
 
       'durationMillis',
 
+      'staticDurationMillis',
+
+      'legs',
+
       'path',
+
+      'viewport',
 
     ],
 
@@ -727,7 +785,13 @@ async function calculateGoogleRoute(
 
             'durationMillis',
 
+            'staticDurationMillis',
+
+            'legs',
+
             'path',
+
+            'viewport',
 
           ],
 
@@ -797,18 +861,58 @@ async function calculateGoogleRoute(
      REAL TRAFFIC-AWARE DURATION
      ========================================================================= */
 
-  const durationMillis =
+  const rawDurationMillis =
     Number(
-      route.durationMillis || 0,
+      route.durationMillis,
     );
 
 
+  const rawStaticDurationMillis =
+    Number(
+      route.staticDurationMillis,
+    );
+
+
+  /*
+   * Prefer Google's traffic-aware duration.
+   * If traffic duration is unavailable, use Google's static duration.
+   */
+
+  const durationMillis =
+    Number.isFinite(rawDurationMillis) &&
+    rawDurationMillis > 0
+
+      ? rawDurationMillis
+
+      : Number.isFinite(rawStaticDurationMillis) &&
+        rawStaticDurationMillis > 0
+
+        ? rawStaticDurationMillis
+
+        : 0;
+
+
   if (
+    !Number.isFinite(durationMillis) ||
     durationMillis <= 0
   ) {
 
+    console.error(
+      'RIDEX: Google returned route without usable duration.',
+      {
+        routeKeys:
+          Object.keys(route || {}),
+        durationMillis:
+          route?.durationMillis,
+        staticDurationMillis:
+          route?.staticDurationMillis,
+        route,
+      },
+    );
+
+
     throw new Error(
-      'Google returned invalid duration.',
+      'Google returned no usable duration.',
     );
 
   }
@@ -846,71 +950,71 @@ async function calculateGoogleRoute(
      REAL ROAD-FOLLOWING PATH
      ========================================================================= */
 
-  const rawPath =
-    route.path || [];
+
+  const routePath =
+    route.legs?.[0]?.path ||
+    route.path ||
+    [];
 
 
-  const polyline =
-    rawPath
-
+  const polyline: Coordinates[] =
+    routePath
       .map(
         (
           point: any,
         ) => {
 
           const lat =
-
             typeof point.lat ===
             'function'
-
               ? point.lat()
-
               : Number(
                   point.lat,
                 );
 
 
           const lng =
-
             typeof point.lng ===
             'function'
-
               ? point.lng()
-
               : Number(
                   point.lng,
                 );
 
 
           return {
-
             lat,
-
             lng,
-
           };
 
         },
       )
-
       .filter(
         (
           point: Coordinates,
         ) =>
-
           Number.isFinite(
             point.lat,
           ) &&
-
           Number.isFinite(
             point.lng,
           ),
       );
 
 
+  console.log('RIDEX ROUTE ENDPOINT:', {
+
+    requestedDestination: drop,
+
+    googleRouteEnd: routePath[routePath.length - 1],
+
+  });
+
+
   /* =========================================================================
      FINAL ROUTE RESULT
      ========================================================================= */
+
 
   const routeInfo: RouteInfo = {
 
@@ -923,6 +1027,8 @@ async function calculateGoogleRoute(
     durationSeconds,
 
     polyline,
+
+    viewport: route.viewport,
 
   };
 
@@ -1456,7 +1562,20 @@ export default function TripDetailsScreen() {
   const handleBack =
     useCallback(() => {
 
-      router.back();
+      if (
+        router.canGoBack()
+      ) {
+
+        router.back();
+
+        return;
+
+      }
+
+
+      router.replace(
+        '/home',
+      );
 
     }, [
 
@@ -2003,6 +2122,14 @@ const handleContinue =
                     />
 
                 )}
+
+
+                {routeInfo?.viewport && (
+
+                  <MapBoundsUpdater viewport={routeInfo.viewport} />
+
+                )}
+
 
               </Map>
 
