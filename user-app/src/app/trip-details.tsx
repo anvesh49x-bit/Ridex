@@ -1,4 +1,5 @@
 import React, {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -6,6 +7,7 @@ import React, {
 
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -23,28 +25,73 @@ import { Ionicons } from '@expo/vector-icons';
 
 import {
   APIProvider,
-  Map,
   AdvancedMarker,
+  Map,
   Polyline,
-  useMapsLibrary,
 } from '@vis.gl/react-google-maps';
 
 
-/*
-|--------------------------------------------------------------------------
-| GOOGLE CONFIG
-|--------------------------------------------------------------------------
-*/
+/* =========================================================================
+   RIDEX — TRIP DETAILS
+   =========================================================================
+
+   PURPOSE
+   -------------------------------------------------------------------------
+   This page is responsible ONLY for:
+
+   1. Showing pickup and destination
+   2. Calculating the REAL Google road route
+   3. Getting REAL distance
+   4. Getting REAL traffic-aware travel time
+   5. Calculating a dynamic suggested fare
+   6. Selecting Bike or Auto
+
+   THIS PAGE DOES NOT HANDLE:
+
+   - User offer amount
+   - Payment
+   - Driver matching
+   - Driver acceptance
+   - Counter offers
+   - Demand/supply pricing
+   - Final booking
+
+   Those will be implemented in later screens.
+
+
+   MAINTENANCE RULE
+   -------------------------------------------------------------------------
+   Every important section below has a named comment.
+
+   Future changes should be added BETWEEN the relevant START / END comments.
+
+   Example:
+
+   // RIDEX PRICING ENGINE START
+   ...
+   // RIDEX PRICING ENGINE END
+
+   If we need to change pricing later, we can modify only that section.
+
+
+   ========================================================================= */
+
+
+/* =========================================================================
+   RIDEX GOOGLE CONFIG START
+   ========================================================================= */
 
 const GOOGLE_API_KEY =
   process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
+/* =========================================================================
+   RIDEX GOOGLE CONFIG END
+   ========================================================================= */
 
-/*
-|--------------------------------------------------------------------------
-| COLORS
-|--------------------------------------------------------------------------
-*/
+
+/* =========================================================================
+   RIDEX COLORS START
+   ========================================================================= */
 
 const COLORS = {
 
@@ -54,7 +101,7 @@ const COLORS = {
 
   greenSoft: '#EAF8F1',
 
-  greenVerySoft: '#F1FAF5',
+  greenVerySoft: '#F3FAF6',
 
   red: '#EF3154',
 
@@ -70,14 +117,20 @@ const COLORS = {
 
   mapBackground: '#EEF3F2',
 
+  yellowSoft: '#FFF7D8',
+
+  yellowText: '#8A6500',
+
 };
 
+/* =========================================================================
+   RIDEX COLORS END
+   ========================================================================= */
 
-/*
-|--------------------------------------------------------------------------
-| TYPES
-|--------------------------------------------------------------------------
-*/
+
+/* =========================================================================
+   RIDEX TYPES START
+   ========================================================================= */
 
 type Coordinates = {
 
@@ -88,24 +141,11 @@ type Coordinates = {
 };
 
 
-type RouteInfo = {
-
-  distanceMeters: number;
-
-  durationMillis: number;
-
-};
-
-
 type VehicleType =
 
   | 'bike'
 
-  | 'auto'
-
-  | 'mini'
-
-  | 'sedan';
+  | 'auto';
 
 
 type Vehicle = {
@@ -118,18 +158,53 @@ type Vehicle = {
 
   icon: string;
 
-  minFare: number;
+};
 
-  maxFare: number;
+
+type RouteInfo = {
+
+  distanceText: string;
+
+  durationText: string;
+
+  distanceMeters: number;
+
+  durationSeconds: number;
+
+  polyline: Coordinates[];
 
 };
 
 
-/*
-|--------------------------------------------------------------------------
-| VEHICLES
-|--------------------------------------------------------------------------
-*/
+type FareQuote = {
+
+  minimum: number;
+
+  recommended: number;
+
+  maximum: number;
+
+};
+
+/* =========================================================================
+   RIDEX TYPES END
+   ========================================================================= */
+
+
+/* =========================================================================
+   RIDEX VEHICLES START
+   =========================================================================
+
+   MVP ONLY:
+
+   - Bike
+   - Auto
+
+   Do NOT add fare values here.
+
+   Fare is calculated by the pricing engine below.
+
+   ========================================================================= */
 
 const VEHICLES: Vehicle[] = [
 
@@ -143,10 +218,6 @@ const VEHICLES: Vehicle[] = [
 
     icon: 'bicycle',
 
-    minFare: 68,
-
-    maxFare: 92,
-
   },
 
   {
@@ -159,747 +230,736 @@ const VEHICLES: Vehicle[] = [
 
     icon: 'car',
 
-    minFare: 90,
-
-    maxFare: 130,
-
-  },
-
-  {
-
-    id: 'mini',
-
-    name: 'Mini',
-
-    subtitle: 'Up to 4',
-
-    icon: 'car-sport',
-
-    minFare: 160,
-
-    maxFare: 220,
-
-  },
-
-  {
-
-    id: 'sedan',
-
-    name: 'Sedan',
-
-    subtitle: 'Up to 4',
-
-    icon: 'car-outline',
-
-    minFare: 220,
-
-    maxFare: 320,
-
   },
 
 ];
 
-
-/*
-|--------------------------------------------------------------------------
-| FORMAT DISTANCE
-|--------------------------------------------------------------------------
-*/
-
-const formatDistance = (
-  meters: number,
-) => {
-
-  if (
-    meters < 1000
-  ) {
-
-    return `${Math.round(meters)} m`;
-
-  }
+/* =========================================================================
+   RIDEX VEHICLES END
+   ========================================================================= */
 
 
-  return `${(
-    meters / 1000
-  ).toFixed(1)} km`;
+/* =========================================================================
+   RIDEX PRICING ENGINE START
+   =========================================================================
+
+   IMPORTANT
+
+   This is the ONLY place where Trip Details calculates fares.
+
+   The calculation uses:
+
+       REAL GOOGLE DISTANCE
+       +
+       REAL GOOGLE DURATION
+       +
+       VEHICLE TYPE
+
+   Formula:
+
+       Base Fare
+       + Distance × Per KM
+       + Time × Per Minute
+
+   Then we generate:
+
+       Minimum
+       Recommended
+       Maximum
+
+   These are initial MVP values.
+
+   They are NOT final city launch rates.
+
+   Later we can move this configuration to Supabase/backend.
+
+   ========================================================================= */
+
+
+/* -------------------------------------------------------------------------
+   INITIAL RIDEX MVP RATES
+   ------------------------------------------------------------------------- */
+
+const PRICING = {
+
+  bike: {
+
+    base: 20,
+
+    perKm: 7,
+
+    perMinute: 1,
+
+    minimumFare: 40,
+
+  },
+
+  auto: {
+
+    base: 30,
+
+    perKm: 10,
+
+    perMinute: 1.5,
+
+    minimumFare: 60,
+
+  },
 
 };
 
 
-/*
-|--------------------------------------------------------------------------
-| FORMAT DURATION
-|--------------------------------------------------------------------------
-*/
+/* -------------------------------------------------------------------------
+   ROUND FARE
+   -------------------------------------------------------------------------
 
-const formatDuration = (
-  milliseconds: number,
-) => {
+   Examples:
 
-  const totalMinutes =
+       ₹72 → ₹70
+       ₹73 → ₹75
+       ₹81 → ₹80
+
+   Keeps the rider-facing price clean.
+   ------------------------------------------------------------------------- */
+
+const roundFare = (
+  amount: number,
+): number => {
+
+  if (
+    !Number.isFinite(amount)
+  ) {
+
+    return 0;
+
+  }
+
+  return Math.round(
+    amount / 5,
+  ) * 5;
+
+};
+
+
+/* -------------------------------------------------------------------------
+   CALCULATE SUGGESTED FARE
+   ------------------------------------------------------------------------- */
+
+const calculateSuggestedFare = (
+
+  vehicle: VehicleType,
+
+  distanceMeters: number,
+
+  durationSeconds: number,
+
+): FareQuote | null => {
+
+  /* -----------------------------------------------------------------------
+     Validate Google route values
+     ----------------------------------------------------------------------- */
+
+  if (
+
+    !Number.isFinite(
+      distanceMeters,
+    ) ||
+
+    !Number.isFinite(
+      durationSeconds,
+    ) ||
+
+    distanceMeters <= 0 ||
+
+    durationSeconds <= 0
+
+  ) {
+
+    return null;
+
+  }
+
+
+  /* -----------------------------------------------------------------------
+     Convert units
+     ----------------------------------------------------------------------- */
+
+  const distanceKm =
+    distanceMeters / 1000;
+
+
+  const durationMinutes =
+    durationSeconds / 60;
+
+
+  /* -----------------------------------------------------------------------
+     Vehicle pricing configuration
+     ----------------------------------------------------------------------- */
+
+  const rate =
+    PRICING[vehicle];
+
+
+  /* -----------------------------------------------------------------------
+     Calculate fair fare
+     ----------------------------------------------------------------------- */
+
+  const calculatedFare =
+
+    rate.base +
+
+    (
+      distanceKm *
+      rate.perKm
+    ) +
+
+    (
+      durationMinutes *
+      rate.perMinute
+    );
+
+
+  /* -----------------------------------------------------------------------
+     Minimum fare protection
+     ----------------------------------------------------------------------- */
+
+  const fairFare =
     Math.max(
-      1,
-      Math.round(
-        milliseconds /
-        60000,
+      calculatedFare,
+      rate.minimumFare,
+    );
+
+
+  /* -----------------------------------------------------------------------
+     Rider-friendly suggested range
+     -----------------------------------------------------------------------
+
+     Minimum:
+       approximately 8% below fair fare
+
+     Recommended:
+       calculated fair fare
+
+     Maximum:
+       approximately 10% above fair fare
+
+     ----------------------------------------------------------------------- */
+
+  const minimum =
+    Math.max(
+
+      rate.minimumFare,
+
+      roundFare(
+        fairFare * 0.92,
       ),
+
     );
 
 
-  if (
-    totalMinutes < 60
-  ) {
+  const recommended =
+    Math.max(
 
-    return `${totalMinutes} min`;
+      minimum,
 
-  }
+      roundFare(
+        fairFare,
+      ),
 
-
-  const hours =
-    Math.floor(
-      totalMinutes / 60,
     );
 
 
-  const minutes =
-    totalMinutes % 60;
+  const maximum =
+    Math.max(
+
+      recommended,
+
+      roundFare(
+        fairFare * 1.10,
+      ),
+
+    );
 
 
-  if (
-    minutes === 0
-  ) {
+  return {
 
-    return `${hours} hr`;
+    minimum,
 
-  }
+    recommended,
 
+    maximum,
 
-  return `${hours} hr ${minutes} min`;
+  };
 
 };
 
+/* =========================================================================
+   RIDEX PRICING ENGINE END
+   ========================================================================= */
 
-/*
-|--------------------------------------------------------------------------
-| ROAD ROUTE
-|--------------------------------------------------------------------------
-|
-| Uses Google's new Routes Library through
-| @vis.gl/react-google-maps.
-|
-| IMPORTANT:
-|
-| We request:
-|
-|     path
-|     distanceMeters
-|     durationMillis
-|
-| The path follows actual roads.
-|
-|--------------------------------------------------------------------------
-*/
 
-function RoadRoute({
-  pickup,
-  drop,
-  onRouteReady,
-  onRouteInfo,
-}: {
-  pickup: Coordinates;
+/* =========================================================================
+   RIDEX REAL GOOGLE ROUTE START
+   =========================================================================
 
-  drop: Coordinates;
+   Google Routes API provides:
 
-  onRouteReady?: () => void;
+       distanceMeters
+       durationMillis
+       path
 
-  onRouteInfo?: (
-    info: RouteInfo,
-  ) => void;
+   routingPreference:
 
-}) {
+       TRAFFIC_AWARE
 
-  /*
-  |--------------------------------------------------------------------------
-  | GOOGLE ROUTES LIBRARY
-  |--------------------------------------------------------------------------
-  */
+   Therefore the ETA is based on Google's traffic-aware routing calculation.
 
-  const routesLibrary =
-    useMapsLibrary(
+   ========================================================================= */
+
+async function calculateGoogleRoute(
+
+  pickup: Coordinates,
+
+  drop: Coordinates,
+
+  pickupName?: string,
+
+  pickupAddress?: string,
+
+  dropName?: string,
+
+  dropAddress?: string,
+
+): Promise<RouteInfo> {
+
+
+  /* -----------------------------------------------------------------------
+     Validate coordinates
+     ----------------------------------------------------------------------- */
+
+  const samePoint =
+
+    Math.abs(
+      pickup.lat -
+      drop.lat,
+    ) < 0.000001 &&
+
+    Math.abs(
+      pickup.lng -
+      drop.lng,
+    ) < 0.000001;
+
+
+  if (samePoint) {
+
+    throw new Error(
+      'Pickup and destination are the same.',
+    );
+
+  }
+
+
+  /* -----------------------------------------------------------------------
+     Google API key
+     ----------------------------------------------------------------------- */
+
+  if (!GOOGLE_API_KEY) {
+
+    throw new Error(
+      'Google Maps API key is missing.',
+    );
+
+  }
+
+
+  /* -----------------------------------------------------------------------
+     Make sure Google Maps is loaded
+     ----------------------------------------------------------------------- */
+
+  const googleMaps =
+    (
+      window as any
+    )?.google?.maps;
+
+
+  if (!googleMaps) {
+
+    throw new Error(
+      'Google Maps JavaScript API is not loaded.',
+    );
+
+  }
+
+
+  /* -----------------------------------------------------------------------
+     Load current Google Routes Library
+     ----------------------------------------------------------------------- */
+
+  const {
+    Route,
+  } =
+    await googleMaps.importLibrary(
       'routes',
     );
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | ROUTE PATH
-  |--------------------------------------------------------------------------
-  */
+  if (!Route) {
 
-  const [
-    routePath,
-    setRoutePath,
-  ] =
-    useState<Coordinates[]>(
-      [],
+    throw new Error(
+      'Google Routes library could not be loaded.',
+    );
+
+  }
+
+
+  /* =========================================================================
+     REQUEST 1 — EXACT COORDINATES
+     ========================================================================= */
+
+  const coordinateRequest = {
+
+    origin: {
+
+      lat:
+        pickup.lat,
+
+      lng:
+        pickup.lng,
+
+    },
+
+    destination: {
+
+      lat:
+        drop.lat,
+
+      lng:
+        drop.lng,
+
+    },
+
+    travelMode:
+      'DRIVING',
+
+    routingPreference:
+      'TRAFFIC_AWARE',
+
+    fields: [
+
+      'distanceMeters',
+
+      'durationMillis',
+
+      'path',
+
+    ],
+
+  };
+
+
+  console.log(
+    'RIDEX ROUTE REQUEST:',
+    coordinateRequest,
+  );
+
+
+  let result =
+    await Route.computeRoutes(
+      coordinateRequest,
     );
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | LOADING
-  |--------------------------------------------------------------------------
-  */
+  /* =========================================================================
+     REQUEST 2 — ADDRESS FALLBACK
+     =========================================================================
 
-  const [
-    loading,
-    setLoading,
-  ] =
-    useState(true);
+     If exact coordinates don't return a route, try the selected
+     place/address text.
 
+     ========================================================================= */
 
-  /*
-  |--------------------------------------------------------------------------
-  | CALCULATE ROUTE
-  |--------------------------------------------------------------------------
-  */
+  if (
 
-  useEffect(() => {
+    !result?.routes ||
 
-    let cancelled =
-      false;
+    result.routes.length === 0
+
+  ) {
+
+    const pickupText =
+      pickupAddress ||
+      pickupName;
 
 
-    const calculateRoadRoute =
-      async () => {
-
-        /*
-        |--------------------------------------------------------------------------
-        | WAIT FOR GOOGLE ROUTES LIBRARY
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-          !routesLibrary
-        ) {
-
-          return;
-
-        }
+    const dropText =
+      dropAddress ||
+      dropName;
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | RESET
-        |--------------------------------------------------------------------------
-        */
+    if (
+      pickupText &&
+      dropText
+    ) {
 
-        setLoading(
-          true,
-        );
-
-        setRoutePath(
-          [],
-        );
+      console.warn(
+        'RIDEX: Coordinate route unavailable. Trying address fallback.',
+      );
 
 
-        try {
+      result =
+        await Route.computeRoutes({
 
-          /*
-          |--------------------------------------------------------------------------
-          | ROUTE CLASS
-          |--------------------------------------------------------------------------
-          */
+          origin:
+            pickupText,
 
-          const Route =
-            routesLibrary.Route;
+          destination:
+            dropText,
+
+          travelMode:
+            'DRIVING',
+
+          routingPreference:
+            'TRAFFIC_AWARE',
+
+          fields: [
+
+            'distanceMeters',
+
+            'durationMillis',
+
+            'path',
+
+          ],
+
+        });
+
+    }
+
+  }
 
 
-          /*
-          |--------------------------------------------------------------------------
-          | GOOGLE ROUTES REQUEST
-          |--------------------------------------------------------------------------
-          */
+  /* =========================================================================
+     GET ROUTE
+     ========================================================================= */
 
-          const request = {
+  const route =
+    result?.routes?.[0];
 
-            origin: {
 
-              lat:
-                pickup.lat,
+  if (!route) {
 
-              lng:
-                pickup.lng,
+    throw new Error(
+      'Google returned no route.',
+    );
 
-            },
+  }
 
-            destination: {
 
-              lat:
-                drop.lat,
+  /* =========================================================================
+     REAL DISTANCE
+     ========================================================================= */
 
-              lng:
-                drop.lng,
+  const distanceMeters =
+    Number(
+      route.distanceMeters || 0,
+    );
 
-            },
 
-            travelMode:
-              'DRIVING',
+  if (
+    distanceMeters <= 0
+  ) {
 
-            /*
-            |--------------------------------------------------------------------------
-            | ONLY REQUEST WHAT RIDEX NEEDS
-            |--------------------------------------------------------------------------
-            */
+    throw new Error(
+      'Google returned invalid distance.',
+    );
 
-            fields: [
+  }
 
-              'path',
 
-              'distanceMeters',
+  const distanceKm =
+    distanceMeters / 1000;
 
-              'durationMillis',
 
-            ],
+  const distanceText =
+
+    distanceKm < 1
+
+      ? `${Math.round(
+          distanceMeters,
+        )} m`
+
+      : `${distanceKm.toFixed(
+          1,
+        )} km`;
+
+
+  /* =========================================================================
+     REAL TRAFFIC-AWARE DURATION
+     ========================================================================= */
+
+  const durationMillis =
+    Number(
+      route.durationMillis || 0,
+    );
+
+
+  if (
+    durationMillis <= 0
+  ) {
+
+    throw new Error(
+      'Google returned invalid duration.',
+    );
+
+  }
+
+
+  const durationSeconds =
+    Math.max(
+
+      1,
+
+      Math.round(
+        durationMillis / 1000,
+      ),
+
+    );
+
+
+  const durationMinutes =
+    Math.max(
+
+      1,
+
+      Math.round(
+        durationSeconds / 60,
+      ),
+
+    );
+
+
+  const durationText =
+    `${durationMinutes} min`;
+
+
+  /* =========================================================================
+     REAL ROAD-FOLLOWING PATH
+     ========================================================================= */
+
+  const rawPath =
+    route.path || [];
+
+
+  const polyline =
+    rawPath
+
+      .map(
+        (
+          point: any,
+        ) => {
+
+          const lat =
+
+            typeof point.lat ===
+            'function'
+
+              ? point.lat()
+
+              : Number(
+                  point.lat,
+                );
+
+
+          const lng =
+
+            typeof point.lng ===
+            'function'
+
+              ? point.lng()
+
+              : Number(
+                  point.lng,
+                );
+
+
+          return {
+
+            lat,
+
+            lng,
 
           };
 
+        },
+      )
 
-          /*
-          |--------------------------------------------------------------------------
-          | CALCULATE REAL ROAD ROUTE
-          |--------------------------------------------------------------------------
-          */
+      .filter(
+        (
+          point: Coordinates,
+        ) =>
 
-          const result =
-            await Route.computeRoutes(
-              request,
-            );
+          Number.isFinite(
+            point.lat,
+          ) &&
 
+          Number.isFinite(
+            point.lng,
+          ),
+      );
 
-          /*
-          |--------------------------------------------------------------------------
-          | COMPONENT UNMOUNTED / ROUTE CHANGED
-          |--------------------------------------------------------------------------
-          */
 
-          if (
-            cancelled
-          ) {
+  /* =========================================================================
+     FINAL ROUTE RESULT
+     ========================================================================= */
 
-            return;
+  const routeInfo: RouteInfo = {
 
-          }
+    distanceText,
 
+    durationText,
 
-          /*
-          |--------------------------------------------------------------------------
-          | ROUTES
-          |--------------------------------------------------------------------------
-          */
+    distanceMeters,
 
-          const routes =
-            result?.routes ||
-            [];
+    durationSeconds,
 
+    polyline,
 
-          /*
-          |--------------------------------------------------------------------------
-          | NO ROUTE FOUND
-          |--------------------------------------------------------------------------
-          */
+  };
 
-          if (
-            routes.length === 0
-          ) {
 
-            console.warn(
-              '[RIDEX] Google returned no road route.',
-            );
+  console.log(
+    'RIDEX ROUTE SUCCESS:',
+    {
 
-            setRoutePath(
-              [],
-            );
+      distance:
+        distanceText,
 
-            return;
+      duration:
+        durationText,
 
-          }
+      distanceMeters,
 
+      durationSeconds,
 
-          /*
-          |--------------------------------------------------------------------------
-          | FIRST / BEST ROUTE
-          |--------------------------------------------------------------------------
-          */
+      routePoints:
+        polyline.length,
 
-          const route =
-            routes[0];
+    },
+  );
 
 
-          /*
-          |--------------------------------------------------------------------------
-          | DISTANCE
-          |--------------------------------------------------------------------------
-          */
-
-          const distanceMeters =
-            Number(
-              route?.distanceMeters,
-            );
-
-
-          /*
-          |--------------------------------------------------------------------------
-          | DURATION
-          |--------------------------------------------------------------------------
-          */
-
-          const durationMillis =
-            Number(
-              route?.durationMillis,
-            );
-
-
-          /*
-          |--------------------------------------------------------------------------
-          | SEND ROUTE INFO TO SCREEN
-          |--------------------------------------------------------------------------
-          */
-
-          if (
-
-            Number.isFinite(
-              distanceMeters,
-            ) &&
-
-            Number.isFinite(
-              durationMillis,
-            )
-
-          ) {
-
-            onRouteInfo?.({
-
-              distanceMeters,
-
-              durationMillis,
-
-            });
-
-          }
-
-
-          /*
-          |--------------------------------------------------------------------------
-          | GOOGLE ROAD PATH
-          |--------------------------------------------------------------------------
-          */
-
-          const googlePath =
-            route?.path ||
-            [];
-
-
-          /*
-          |--------------------------------------------------------------------------
-          | CONVERT GOOGLE PATH
-          |--------------------------------------------------------------------------
-          */
-
-          const convertedPath =
-            googlePath
-
-              .map(
-                (
-                  point: any,
-                ) => {
-
-                  /*
-                  |--------------------------------------------------------------------------
-                  | GOOGLE LAT
-                  |--------------------------------------------------------------------------
-                  */
-
-                  const lat =
-                    typeof point?.lat ===
-                    'function'
-
-                      ? point.lat()
-
-                      : point?.lat;
-
-
-                  /*
-                  |--------------------------------------------------------------------------
-                  | GOOGLE LNG
-                  |--------------------------------------------------------------------------
-                  */
-
-                  const lng =
-                    typeof point?.lng ===
-                    'function'
-
-                      ? point.lng()
-
-                      : point?.lng;
-
-
-                  /*
-                  |--------------------------------------------------------------------------
-                  | VALIDATE
-                  |--------------------------------------------------------------------------
-                  */
-
-                  if (
-
-                    typeof lat !==
-                      'number' ||
-
-                    typeof lng !==
-                      'number' ||
-
-                    !Number.isFinite(
-                      lat,
-                    ) ||
-
-                    !Number.isFinite(
-                      lng,
-                    )
-
-                  ) {
-
-                    return null;
-
-                  }
-
-
-                  return {
-
-                    lat,
-
-                    lng,
-
-                  };
-
-                },
-              )
-
-              .filter(
-
-                (
-                  point:
-                    Coordinates |
-                    null,
-                ): point is Coordinates =>
-
-                  point !== null,
-
-              );
-
-
-          /*
-          |--------------------------------------------------------------------------
-          | VALID ROAD PATH
-          |--------------------------------------------------------------------------
-          */
-
-          if (
-            convertedPath.length >
-            1
-          ) {
-
-            setRoutePath(
-              convertedPath,
-            );
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | ROUTE READY
-            |--------------------------------------------------------------------------
-            */
-
-            onRouteReady?.();
-
-          }
-
-          else {
-
-            console.warn(
-              '[RIDEX] Google returned an invalid route path.',
-            );
-
-            setRoutePath(
-              [],
-            );
-
-          }
-
-        }
-
-        catch (
-          error
-        ) {
-
-          console.error(
-            '[RIDEX] Road route calculation failed:',
-            error,
-          );
-
-          setRoutePath(
-            [],
-          );
-
-        }
-
-        finally {
-
-          if (
-            !cancelled
-          ) {
-
-            setLoading(
-              false,
-            );
-
-          }
-
-        }
-
-      };
-
-
-    calculateRoadRoute();
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | CLEANUP
-    |--------------------------------------------------------------------------
-    */
-
-    return () => {
-
-      cancelled =
-        true;
-
-    };
-
-
-  }, [
-
-    routesLibrary,
-
-    pickup.lat,
-
-    pickup.lng,
-
-    drop.lat,
-
-    drop.lng,
-
-  ]);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | LOADING
-  |--------------------------------------------------------------------------
-  */
-
-  if (
-    loading
-  ) {
-
-    return (
-
-      <View
-        style={
-          styles.routeLoading
-        }
-      >
-
-        <ActivityIndicator
-          size="small"
-          color={
-            COLORS.green
-          }
-        />
-
-
-        <Text
-          style={
-            styles.routeLoadingText
-          }
-        >
-          Finding route…
-        </Text>
-
-      </View>
-
-    );
-
-  }
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | DRAW ROAD ROUTE
-  |--------------------------------------------------------------------------
-  */
-
-  if (
-    routePath.length >
-    1
-  ) {
-
-    return (
-
-      <Polyline
-
-        path={
-          routePath
-        }
-
-        strokeColor={
-          COLORS.green
-        }
-
-        strokeOpacity={
-          0.95
-        }
-
-        strokeWeight={
-          6
-        }
-
-      />
-
-    );
-
-  }
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | IMPORTANT
-  |--------------------------------------------------------------------------
-  |
-  | Never draw a straight line between pickup/drop.
-  |
-  |--------------------------------------------------------------------------
-  */
-
-  return null;
+  return routeInfo;
 
 }
 
+/* =========================================================================
+   RIDEX REAL GOOGLE ROUTE END
+   ========================================================================= */
 
-/*
-|--------------------------------------------------------------------------
-| TRIP DETAILS SCREEN
-|--------------------------------------------------------------------------
-*/
+
+/* =========================================================================
+   TRIP DETAILS SCREEN START
+   ========================================================================= */
 
 export default function TripDetailsScreen() {
 
@@ -907,11 +967,9 @@ export default function TripDetailsScreen() {
     useRouter();
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | ROUTE PARAMETERS
-  |--------------------------------------------------------------------------
-  */
+  /* =========================================================================
+     ROUTE PARAMETERS START
+     ========================================================================= */
 
   const params =
     useLocalSearchParams<{
@@ -934,14 +992,16 @@ export default function TripDetailsScreen() {
 
     }>();
 
+  /* =========================================================================
+     ROUTE PARAMETERS END
+     ========================================================================= */
 
-  /*
-  |--------------------------------------------------------------------------
-  | PICKUP COORDINATES
-  |--------------------------------------------------------------------------
-  */
 
-  const pickup =
+  /* =========================================================================
+     PICKUP COORDINATES START
+     ========================================================================= */
+
+  const pickupCoordinates =
     useMemo<Coordinates | null>(() => {
 
       const lat =
@@ -958,21 +1018,39 @@ export default function TripDetailsScreen() {
 
       if (
 
-        !Number.isFinite(
-          lat,
-        ) ||
+        !Number.isFinite(lat) ||
 
-        !Number.isFinite(
-          lng,
-        ) ||
+        !Number.isFinite(lng)
 
-        (
+      ) {
 
-          lat === 0 &&
+        return null;
 
-          lng === 0
+      }
 
-        )
+
+      if (
+
+        lat < -90 ||
+
+        lat > 90 ||
+
+        lng < -180 ||
+
+        lng > 180
+
+      ) {
+
+        return null;
+
+      }
+
+
+      if (
+
+        lat === 0 &&
+
+        lng === 0
 
       ) {
 
@@ -997,14 +1075,16 @@ export default function TripDetailsScreen() {
 
     ]);
 
+  /* =========================================================================
+     PICKUP COORDINATES END
+     ========================================================================= */
 
-  /*
-  |--------------------------------------------------------------------------
-  | DROP COORDINATES
-  |--------------------------------------------------------------------------
-  */
 
-  const drop =
+  /* =========================================================================
+     DROP COORDINATES START
+     ========================================================================= */
+
+  const dropCoordinates =
     useMemo<Coordinates | null>(() => {
 
       const lat =
@@ -1021,21 +1101,39 @@ export default function TripDetailsScreen() {
 
       if (
 
-        !Number.isFinite(
-          lat,
-        ) ||
+        !Number.isFinite(lat) ||
 
-        !Number.isFinite(
-          lng,
-        ) ||
+        !Number.isFinite(lng)
 
-        (
+      ) {
 
-          lat === 0 &&
+        return null;
 
-          lng === 0
+      }
 
-        )
+
+      if (
+
+        lat < -90 ||
+
+        lat > 90 ||
+
+        lng < -180 ||
+
+        lng > 180
+
+      ) {
+
+        return null;
+
+      }
+
+
+      if (
+
+        lat === 0 &&
+
+        lng === 0
 
       ) {
 
@@ -1060,180 +1158,214 @@ export default function TripDetailsScreen() {
 
     ]);
 
+  /* =========================================================================
+     DROP COORDINATES END
+     ========================================================================= */
 
-  /*
-  |--------------------------------------------------------------------------
-  | SELECTED VEHICLE
-  |--------------------------------------------------------------------------
-  */
+
+  /* =========================================================================
+     SELECTED VEHICLE START
+     ========================================================================= */
 
   const [
+
     selectedVehicle,
+
     setSelectedVehicle,
-  ] =
-    useState<VehicleType>(
-      'bike',
-    );
+
+  ] = useState<VehicleType>(
+    'bike',
+  );
+
+  /* =========================================================================
+     SELECTED VEHICLE END
+     ========================================================================= */
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | ROUTE READY
-  |--------------------------------------------------------------------------
-  */
-
-  const [
-    routeReady,
-    setRouteReady,
-  ] =
-    useState(false);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | ROUTE INFORMATION
-  |--------------------------------------------------------------------------
-  */
+  /* =========================================================================
+     ROUTE STATE START
+     ========================================================================= */
 
   const [
+
     routeInfo,
+
     setRouteInfo,
-  ] =
-    useState<RouteInfo | null>(
-      null,
+
+  ] = useState<RouteInfo | null>(
+    null,
+  );
+
+
+  const [
+
+    routeLoading,
+
+    setRouteLoading,
+
+  ] = useState(true);
+
+
+  const [
+
+    routeError,
+
+    setRouteError,
+
+  ] = useState(false);
+
+  /* =========================================================================
+     ROUTE STATE END
+     ========================================================================= */
+
+
+  /* =========================================================================
+     CALCULATE ROUTE START
+     ========================================================================= */
+
+  const loadRoute =
+    useCallback(
+      async () => {
+
+        if (
+
+          !pickupCoordinates ||
+
+          !dropCoordinates
+
+        ) {
+
+          setRouteInfo(
+            null,
+          );
+
+          setRouteLoading(
+            false,
+          );
+
+          setRouteError(
+            true,
+          );
+
+          return;
+
+        }
+
+
+        setRouteLoading(
+          true,
+        );
+
+        setRouteError(
+          false,
+        );
+
+
+        try {
+
+          const newRoute =
+            await calculateGoogleRoute(
+
+              pickupCoordinates,
+
+              dropCoordinates,
+
+              params.pickupName,
+
+              params.pickupAddress,
+
+              params.dropName,
+
+              params.dropAddress,
+
+            );
+
+
+          setRouteInfo(
+            newRoute,
+          );
+
+
+        } catch (error) {
+
+          console.error(
+            'RIDEX ROUTE ERROR:',
+            error,
+          );
+
+
+          setRouteInfo(
+            null,
+          );
+
+
+          setRouteError(
+            true,
+          );
+
+        } finally {
+
+          setRouteLoading(
+            false,
+          );
+
+        }
+
+      },
+
+      [
+
+        pickupCoordinates,
+
+        dropCoordinates,
+
+        params.pickupName,
+
+        params.pickupAddress,
+
+        params.dropName,
+
+        params.dropAddress,
+
+      ],
     );
 
-
-  /*
-  |--------------------------------------------------------------------------
-  | SELECTED VEHICLE DATA
-  |--------------------------------------------------------------------------
-  */
-
-  const selectedVehicleData =
-    VEHICLES.find(
-      (
-        vehicle,
-      ) =>
-        vehicle.id ===
-        selectedVehicle,
-    ) ||
-    VEHICLES[0];
+  /* =========================================================================
+     CALCULATE ROUTE END
+     ========================================================================= */
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | MAP CENTER
-  |--------------------------------------------------------------------------
-  */
+  /* =========================================================================
+     AUTOMATIC ROUTE CALCULATION START
+     ========================================================================= */
 
-  const mapCenter =
-    pickup ||
-    drop || {
+  useEffect(() => {
 
-      lat: 16.5062,
+    loadRoute();
 
-      lng: 80.6480,
+  }, [
 
-    };
+    loadRoute,
 
+  ]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | BACK
-  |--------------------------------------------------------------------------
-  */
-
-  const handleBack =
-    () => {
-
-      router.back();
-
-    };
+  /* =========================================================================
+     AUTOMATIC ROUTE CALCULATION END
+     ========================================================================= */
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | MAKE OFFER
-  |--------------------------------------------------------------------------
-  */
-
-  const handleMakeOffer =
-    () => {
-
-      router.push({
-
-        pathname:
-          '/make-offer' as any,
-
-        params: {
-
-          pickupName:
-            params.pickupName ||
-            'Current location',
-
-          pickupAddress:
-            params.pickupAddress ||
-            '',
-
-          pickupLat:
-            params.pickupLat ||
-            '',
-
-          pickupLng:
-            params.pickupLng ||
-            '',
-
-          dropName:
-            params.dropName ||
-            'Destination',
-
-          dropAddress:
-            params.dropAddress ||
-            '',
-
-          dropLat:
-            params.dropLat ||
-            '',
-
-          dropLng:
-            params.dropLng ||
-            '',
-
-          vehicle:
-            selectedVehicle,
-
-          minFare:
-            String(
-              selectedVehicleData.minFare,
-            ),
-
-          maxFare:
-            String(
-              selectedVehicleData.maxFare,
-            ),
-
-        },
-
-      });
-
-    };
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | DISPLAY LOCATIONS
-  |--------------------------------------------------------------------------
-  */
+  /* =========================================================================
+     DISPLAY VALUES START
+     ========================================================================= */
 
   const pickupName =
     params.pickupName ||
-    'Current Location';
+    'Current location';
 
 
   const pickupAddress =
     params.pickupAddress ||
-    'Current location';
+    '';
 
 
   const dropName =
@@ -1245,12 +1377,188 @@ export default function TripDetailsScreen() {
     params.dropAddress ||
     '';
 
+  /* =========================================================================
+     DISPLAY VALUES END
+     ========================================================================= */
 
-  /*
-  |--------------------------------------------------------------------------
-  | RENDER
-  |--------------------------------------------------------------------------
-  */
+
+  /* =========================================================================
+     REAL-TIME SUGGESTED FARE START
+     =========================================================================
+
+     This is recalculated automatically when:
+
+     - Route distance changes
+     - Route duration changes
+     - Vehicle changes
+
+     ========================================================================= */
+
+  const suggestedFare =
+    useMemo(
+
+      () =>
+
+        calculateSuggestedFare(
+
+          selectedVehicle,
+
+          routeInfo?.distanceMeters ||
+            0,
+
+          routeInfo?.durationSeconds ||
+            0,
+
+        ),
+
+      [
+
+        selectedVehicle,
+
+        routeInfo?.distanceMeters,
+
+        routeInfo?.durationSeconds,
+
+      ],
+
+    );
+
+  /* =========================================================================
+     REAL-TIME SUGGESTED FARE END
+     ========================================================================= */
+
+
+  /* =========================================================================
+     MAP CENTER START
+     ========================================================================= */
+
+  const mapCenter =
+    pickupCoordinates ||
+    dropCoordinates || {
+
+      lat:
+        16.5062,
+
+      lng:
+        80.6480,
+
+    };
+
+  /* =========================================================================
+     MAP CENTER END
+     ========================================================================= */
+
+
+  /* =========================================================================
+     BACK BUTTON START
+     ========================================================================= */
+
+  const handleBack =
+    useCallback(() => {
+
+      router.back();
+
+    }, [
+
+      router,
+
+    ]);
+
+  /* =========================================================================
+     BACK BUTTON END
+     ========================================================================= */
+
+
+  /* =========================================================================
+     CONTINUE BUTTON START
+     =========================================================================
+
+     IMPORTANT:
+
+     The next "Your Offer" page is intentionally NOT implemented yet.
+
+     For now, pressing the button confirms that the pricing engine is
+     working and shows the calculated values.
+
+     ========================================================================= */
+
+  const handleContinue =
+    useCallback(() => {
+
+      if (!suggestedFare) {
+
+        Alert.alert(
+          'Fare unavailable',
+          'Please wait for the route and fare to finish calculating.',
+        );
+
+        return;
+
+      }
+
+
+      console.log(
+        'RIDEX READY FOR OFFER PAGE:',
+        {
+
+          vehicle:
+            selectedVehicle,
+
+          distance:
+            routeInfo?.distanceMeters,
+
+          duration:
+            routeInfo?.durationSeconds,
+
+          minimumFare:
+            suggestedFare.minimum,
+
+          recommendedFare:
+            suggestedFare.recommended,
+
+          maximumFare:
+            suggestedFare.maximum,
+
+        },
+      );
+
+
+      Alert.alert(
+
+        'Suggested Fare',
+
+        `${selectedVehicle === 'bike'
+          ? 'Bike'
+          : 'Auto'}\n\n` +
+
+        `${routeInfo?.distanceText || ''} • ` +
+
+        `${routeInfo?.durationText || ''}\n\n` +
+
+        `Suggested: ₹${suggestedFare.minimum} – ₹${suggestedFare.maximum}\n` +
+
+        `Recommended: ₹${suggestedFare.recommended}`,
+
+      );
+
+    }, [
+
+      suggestedFare,
+
+      selectedVehicle,
+
+      routeInfo,
+
+    ]);
+
+  /* =========================================================================
+     CONTINUE BUTTON END
+     ========================================================================= */
+
+
+  /* =========================================================================
+     TRIP DETAILS UI START
+     ========================================================================= */
 
   return (
 
@@ -1260,15 +1568,30 @@ export default function TripDetailsScreen() {
       }
     >
 
-      <View
+      <ScrollView
+
         style={
           styles.screen
         }
+
+        contentContainerStyle={
+          styles.screenContent
+        }
+
+        showsVerticalScrollIndicator={
+          false
+        }
+
+        keyboardShouldPersistTaps="handled"
+
+        nestedScrollEnabled
+
       >
 
+
         {/* ================================================================
-            HEADER
-        ================================================================= */}
+            HEADER START
+        ================================================================ */}
 
         <View
           style={
@@ -1277,6 +1600,7 @@ export default function TripDetailsScreen() {
         >
 
           <Pressable
+
             style={
               styles.backButton
             }
@@ -1284,14 +1608,19 @@ export default function TripDetailsScreen() {
             onPress={
               handleBack
             }
+
           >
 
             <Ionicons
+
               name="arrow-back"
-              size={29}
+
+              size={25}
+
               color={
                 COLORS.black
               }
+
             />
 
           </Pressable>
@@ -1317,7 +1646,7 @@ export default function TripDetailsScreen() {
                 styles.headerSubtitle
               }
             >
-              Tell us where you want to go
+              Review your route and fare
             </Text>
 
           </View>
@@ -1331,44 +1660,39 @@ export default function TripDetailsScreen() {
 
         </View>
 
+        {/* ================================================================
+            HEADER END
+        ================================================================ */}
+
 
         {/* ================================================================
-            CONTENT
-        ================================================================= */}
+            LOCATIONS START
+        ================================================================ */}
 
-        <ScrollView
-
-          showsVerticalScrollIndicator={
-            false
+        <View
+          style={
+            styles.locationCard
           }
-
-          contentContainerStyle={
-            styles.content
-          }
-
         >
 
-          {/* ================================================================
-              LOCATIONS CARD
-          ================================================================= */}
+
+          {/* PICKUP */}
 
           <View
             style={
-              styles.locationCard
+              styles.locationRow
             }
           >
 
-            {/* PICKUP */}
-
             <View
               style={
-                styles.locationRow
+                styles.markerColumn
               }
             >
 
               <View
                 style={
-                  styles.timeline
+                  styles.pickupMarker
                 }
               >
 
@@ -1378,432 +1702,20 @@ export default function TripDetailsScreen() {
                   }
                 />
 
-                <View
-                  style={
-                    styles.timelineLine
-                  }
-                />
-
               </View>
-
-
-              <View
-                style={
-                  styles.locationInfo
-                }
-              >
-
-                <Text
-                  style={
-                    styles.pickupLabel
-                  }
-                >
-                  Pickup location
-                </Text>
-
-
-                <Text
-                  style={
-                    styles.locationName
-                  }
-
-                  numberOfLines={
-                    1
-                  }
-                >
-                  {pickupName}
-                </Text>
-
-
-                <Text
-                  style={
-                    styles.locationAddress
-                  }
-
-                  numberOfLines={
-                    1
-                  }
-                >
-                  {pickupAddress}
-                </Text>
-
-              </View>
-
-
-              <Pressable
-                style={
-                  styles.locationAction
-                }
-
-                onPress={
-                  handleBack
-                }
-              >
-
-                <Ionicons
-                  name="locate-outline"
-                  size={24}
-                  color={
-                    COLORS.black
-                  }
-                />
-
-              </Pressable>
 
             </View>
 
 
             <View
               style={
-                styles.locationDivider
+                styles.locationText
               }
-            />
-
-
-            {/* DROP */}
-
-            <View
-              style={
-                styles.locationRow
-              }
-            >
-
-              <View
-                style={
-                  styles.timeline
-                }
-              >
-
-                <View
-                  style={
-                    styles.dropDot
-                  }
-                />
-
-              </View>
-
-
-              <View
-                style={
-                  styles.locationInfo
-                }
-              >
-
-                <Text
-                  style={
-                    styles.dropLabel
-                  }
-                >
-                  Drop location
-                </Text>
-
-
-                <Text
-                  style={
-                    styles.locationName
-                  }
-
-                  numberOfLines={
-                    1
-                  }
-                >
-                  {dropName}
-                </Text>
-
-
-                <Text
-                  style={
-                    styles.locationAddress
-                  }
-
-                  numberOfLines={
-                    1
-                  }
-                >
-                  {dropAddress}
-                </Text>
-
-              </View>
-
-
-              <Pressable
-                style={
-                  styles.locationAction
-                }
-
-                onPress={
-                  handleBack
-                }
-              >
-
-                <Ionicons
-                  name="close"
-                  size={26}
-                  color={
-                    COLORS.black
-                  }
-                />
-
-              </Pressable>
-
-            </View>
-
-          </View>
-
-
-          {/* ================================================================
-              MAP
-          ================================================================= */}
-
-          <View
-            style={
-              styles.mapContainer
-            }
-          >
-
-            {GOOGLE_API_KEY ? (
-
-              <APIProvider
-                apiKey={
-                  GOOGLE_API_KEY
-                }
-              >
-
-                <Map
-
-                  defaultCenter={
-                    mapCenter
-                  }
-
-                  defaultZoom={
-                    pickup &&
-                    drop
-                      ? 13
-                      : 14
-                  }
-
-                  gestureHandling="greedy"
-
-                  disableDefaultUI={
-                    true
-                  }
-
-                  clickableIcons={
-                    false
-                  }
-
-                  mapId="DEMO_MAP_ID"
-
-                >
-
-                  {/* ========================================================
-                      PICKUP MARKER
-                  ======================================================== */}
-
-                  {pickup && (
-
-                    <AdvancedMarker
-                      position={
-                        pickup
-                      }
-                    >
-
-                      <View
-                        style={
-                          styles.pickupMapMarker
-                        }
-                      >
-
-                        <View
-                          style={
-                            styles.pickupMapDot
-                        }
-                        />
-
-                      </View>
-
-                    </AdvancedMarker>
-
-                  )}
-
-
-                  {/* ========================================================
-                      DROP MARKER
-                  ======================================================== */}
-
-                  {drop && (
-
-                    <AdvancedMarker
-                      position={
-                        drop
-                      }
-                    >
-
-                      <View
-                        style={
-                          styles.dropMapMarker
-                        }
-                      >
-
-                        <Ionicons
-                          name="location"
-                          size={38}
-                          color={
-                            COLORS.red
-                          }
-                        />
-
-                      </View>
-
-                    </AdvancedMarker>
-
-                  )}
-
-
-                  {/* ========================================================
-                      REAL ROAD ROUTE
-                  ======================================================== */}
-
-                  {pickup &&
-                    drop && (
-
-                    <RoadRoute
-
-                      pickup={
-                        pickup
-                      }
-
-                      drop={
-                        drop
-                      }
-
-                      onRouteReady={() => {
-
-                        setRouteReady(
-                          true,
-                        );
-
-                      }}
-
-                      onRouteInfo={(
-                        info,
-                      ) => {
-
-                        setRouteInfo(
-                          info,
-                        );
-
-                      }}
-
-                    />
-
-                  )}
-
-                </Map>
-
-              </APIProvider>
-
-            ) : (
-
-              <View
-                style={
-                  styles.mapFallback
-                }
-              >
-
-                <Ionicons
-                  name="map-outline"
-                  size={38}
-                  color={
-                    COLORS.green
-                  }
-                />
-
-
-                <Text
-                  style={
-                    styles.mapFallbackText
-                  }
-                >
-                  Map unavailable
-                </Text>
-
-              </View>
-
-            )}
-
-
-            {/* ================================================================
-                ROUTE LOADING
-            ================================================================= */}
-
-            {pickup &&
-              drop &&
-              !routeReady && (
-
-              <View
-                style={
-                  styles.routeStatus
-                }
-              >
-
-                <ActivityIndicator
-                  size="small"
-                  color={
-                    COLORS.green
-                  }
-                />
-
-
-                <Text
-                  style={
-                    styles.routeStatusText
-                  }
-                >
-                  Finding route…
-                </Text>
-
-              </View>
-
-            )}
-
-
-            {/* ================================================================
-                MAP LAYERS
-            ================================================================= */}
-
-            <Pressable
-              style={
-                styles.layersButton
-              }
-            >
-
-              <Ionicons
-                name="layers-outline"
-                size={25}
-                color={
-                  COLORS.black
-                }
-              />
-
-            </Pressable>
-
-
-            {/* ================================================================
-                PICKUP LABEL
-            ================================================================= */}
-
-            <View
-              style={[
-                styles.mapLabel,
-
-                styles.pickupMapLabel,
-              ]}
             >
 
               <Text
                 style={
-                  styles.mapLabelTitleGreen
+                  styles.pickupLabel
                 }
               >
                 Pickup
@@ -1812,402 +1724,65 @@ export default function TripDetailsScreen() {
 
               <Text
                 style={
-                  styles.mapLabelText
+                  styles.locationName
                 }
+                numberOfLines={1}
               >
                 {pickupName}
               </Text>
 
-            </View>
 
+              {!!pickupAddress && (
 
-            {/* ================================================================
-                DROP LABEL
-            ================================================================= */}
+                <Text
+                  style={
+                    styles.locationAddress
+                  }
+                  numberOfLines={1}
+                >
+                  {pickupAddress}
+                </Text>
 
-            <View
-              style={[
-                styles.mapLabel,
-
-                styles.dropMapLabel,
-              ]}
-            >
-
-              <Text
-                style={
-                  styles.mapLabelTitleRed
-                }
-              >
-                Drop
-              </Text>
-
-
-              <Text
-                style={
-                  styles.mapLabelText
-                }
-              >
-                {dropName}
-              </Text>
+              )}
 
             </View>
 
           </View>
 
 
-          {/* ================================================================
-              ROUTE SUMMARY
-          ================================================================= */}
+          {/* VERTICAL CONNECTOR */}
 
           <View
             style={
-              styles.routeCard
+              styles.locationConnector
             }
-          >
+          />
 
-            {/* DISTANCE */}
 
-            <View
-              style={
-                styles.routeItem
-              }
-            >
-
-              <View
-                style={
-                  styles.routeIconCircle
-                }
-              >
-
-                <Ionicons
-                  name="car-outline"
-                  size={25}
-                  color={
-                    COLORS.green
-                  }
-                />
-
-              </View>
-
-
-              <View>
-
-                <Text
-                  style={
-                    styles.routeValue
-                  }
-                >
-                  {routeInfo
-
-                    ? formatDistance(
-                        routeInfo.distanceMeters,
-                      )
-
-                    : '—'}
-
-                </Text>
-
-
-                <Text
-                  style={
-                    styles.routeLabel
-                  }
-                >
-                  Distance
-                </Text>
-
-              </View>
-
-            </View>
-
-
-            <View
-              style={
-                styles.routeDivider
-              }
-            />
-
-
-            {/* TIME */}
-
-            <View
-              style={
-                styles.routeItem
-              }
-            >
-
-              <View
-                style={
-                  styles.routeIconCircle
-                }
-              >
-
-                <Ionicons
-                  name="time-outline"
-                  size={25}
-                  color={
-                    COLORS.green
-                  }
-                />
-
-              </View>
-
-
-              <View>
-
-                <Text
-                  style={
-                    styles.routeValue
-                  }
-                >
-                  {routeInfo
-
-                    ? formatDuration(
-                        routeInfo.durationMillis,
-                      )
-
-                    : '—'}
-
-                </Text>
-
-
-                <Text
-                  style={
-                    styles.routeLabel
-                  }
-                >
-                  Est. time
-                </Text>
-
-              </View>
-
-            </View>
-
-
-            <View
-              style={
-                styles.routeDivider
-              }
-            />
-
-
-            {/* FARE */}
-
-            <View
-              style={
-                styles.routeItem
-              }
-            >
-
-              <Text
-                style={
-                  styles.rupeeSymbol
-                }
-              >
-                ₹
-              </Text>
-
-
-              <View>
-
-                <Text
-                  style={
-                    styles.routeSmallLabel
-                  }
-                >
-                  Suggested
-                </Text>
-
-
-                <Text
-                  style={
-                    styles.routeFare
-                  }
-                >
-                  ₹
-                  {selectedVehicleData.minFare}
-                  {' – ₹'}
-                  {selectedVehicleData.maxFare}
-                </Text>
-
-              </View>
-
-            </View>
-
-          </View>
-
-
-          {/* ================================================================
-              VEHICLE TITLE
-          ================================================================= */}
-
-          <Text
-            style={
-              styles.sectionTitle
-            }
-          >
-            Choose a vehicle type
-          </Text>
-
-
-          {/* ================================================================
-              VEHICLES
-          ================================================================= */}
-
-          <ScrollView
-
-            horizontal
-
-            showsHorizontalScrollIndicator={
-              false
-            }
-
-            contentContainerStyle={
-              styles.vehicleRow
-            }
-
-          >
-
-            {VEHICLES.map(
-              (
-                vehicle,
-              ) => {
-
-                const active =
-                  selectedVehicle ===
-                  vehicle.id;
-
-
-                return (
-
-                  <Pressable
-
-                    key={
-                      vehicle.id
-                    }
-
-                    style={[
-                      styles.vehicleCard,
-
-                      active &&
-                        styles.vehicleCardActive,
-
-                    ]}
-
-                    onPress={() =>
-                      setSelectedVehicle(
-                        vehicle.id,
-                      )
-                    }
-
-                  >
-
-                    {/* VEHICLE ICON */}
-
-                    <View
-                      style={[
-                        styles.vehicleIconCircle,
-
-                        active &&
-                          styles.vehicleIconCircleActive,
-
-                      ]}
-                    >
-
-                      <Ionicons
-                        name={
-                          vehicle.icon as any
-                        }
-
-                        size={
-                          vehicle.id ===
-                          'bike'
-                            ? 38
-                            : 34
-                        }
-
-                        color={
-                          active
-                            ? COLORS.green
-                            : COLORS.black
-                        }
-
-                      />
-
-                    </View>
-
-
-                    {/* VEHICLE NAME */}
-
-                    <Text
-                      style={
-                        styles.vehicleName
-                      }
-                    >
-                      {vehicle.name}
-                    </Text>
-
-
-                    {/* CAPACITY */}
-
-                    <Text
-                      style={
-                        styles.vehicleSubtitle
-                      }
-                    >
-                      {vehicle.subtitle}
-                    </Text>
-
-
-                    {/* FARE */}
-
-                    <Text
-                      style={[
-                        styles.vehicleFare,
-
-                        active &&
-                          styles.vehicleFareActive,
-
-                      ]}
-                    >
-                      ₹
-                      {vehicle.minFare}
-                      {' – ₹'}
-                      {vehicle.maxFare}
-                    </Text>
-
-                  </Pressable>
-
-                );
-
-              },
-            )}
-
-          </ScrollView>
-
-
-          {/* ================================================================
-              PRICE NEGOTIATION
-          ================================================================= */}
+          {/* DESTINATION */}
 
           <View
             style={
-              styles.offerCard
+              styles.locationRow
             }
           >
 
             <View
               style={
-                styles.offerIcon
+                styles.markerColumn
               }
             >
 
               <Ionicons
-                name="shield-checkmark-outline"
-                size={28}
+
+                name="location"
+
+                size={34}
+
                 color={
-                  COLORS.green
+                  COLORS.red
                 }
+
               />
 
             </View>
@@ -2215,109 +1790,1045 @@ export default function TripDetailsScreen() {
 
             <View
               style={
-                styles.offerContent
+                styles.locationText
               }
             >
 
               <Text
                 style={
-                  styles.offerTitle
+                  styles.dropLabel
                 }
               >
-                You set the price,
-                riders make it happen.
+                Destination
               </Text>
 
 
               <Text
                 style={
-                  styles.offerSubtitle
+                  styles.locationName
+                }
+                numberOfLines={1}
+              >
+                {dropName}
+              </Text>
+
+
+              {!!dropAddress && (
+
+                <Text
+                  style={
+                    styles.locationAddress
+                  }
+                  numberOfLines={1}
+                >
+                  {dropAddress}
+                </Text>
+
+              )}
+
+            </View>
+
+          </View>
+
+        </View>
+
+        {/* ================================================================
+            LOCATIONS END
+        ================================================================ */}
+
+
+        {/* ================================================================
+            MAP START
+        ================================================================ */}
+
+        <View
+          style={
+            styles.mapContainer
+          }
+        >
+
+          {GOOGLE_API_KEY ? (
+
+            <APIProvider
+              apiKey={
+                GOOGLE_API_KEY
+              }
+            >
+
+              <Map
+
+                defaultCenter={
+                  mapCenter
+                }
+
+                defaultZoom={
+                  pickupCoordinates &&
+                  dropCoordinates
+                    ? 13
+                    : 14
+                }
+
+                gestureHandling="greedy"
+
+                disableDefaultUI={
+                  true
+                }
+
+                clickableIcons={
+                  false
+                }
+
+                mapId="DEMO_MAP_ID"
+
+              >
+
+
+                {/* --------------------------------------------------------
+                    PICKUP MARKER
+                -------------------------------------------------------- */}
+
+                {pickupCoordinates && (
+
+                  <AdvancedMarker
+                    position={
+                      pickupCoordinates
+                    }
+                  >
+
+                    <View
+                      style={
+                        styles.mapPickupMarker
+                      }
+                    >
+
+                      <View
+                        style={
+                          styles.mapPickupDot
+                        }
+                      />
+
+                    </View>
+
+                  </AdvancedMarker>
+
+                )}
+
+
+                {/* --------------------------------------------------------
+                    DESTINATION MARKER
+                -------------------------------------------------------- */}
+
+                {dropCoordinates && (
+
+                  <AdvancedMarker
+                    position={
+                      dropCoordinates
+                    }
+                  >
+
+                    <View
+                      style={
+                        styles.mapDropMarker
+                      }
+                    >
+
+                      <Ionicons
+
+                        name="location"
+
+                        size={38}
+
+                        color={
+                          COLORS.red
+                        }
+
+                      />
+
+                    </View>
+
+                  </AdvancedMarker>
+
+                )}
+
+
+                {/* --------------------------------------------------------
+                    REAL ROAD-FOLLOWING ROUTE
+                -------------------------------------------------------- */}
+
+                {routeInfo &&
+
+                  routeInfo.polyline.length > 1 && (
+
+                    <Polyline
+
+                      path={
+                        routeInfo.polyline
+                      }
+
+                      strokeColor={
+                        COLORS.green
+                      }
+
+                      strokeOpacity={
+                        0.9
+                      }
+
+                      strokeWeight={
+                        5
+                      }
+
+                    />
+
+                )}
+
+              </Map>
+
+            </APIProvider>
+
+          ) : (
+
+            <View
+              style={
+                styles.mapFallback
+              }
+            >
+
+              <Ionicons
+
+                name="map-outline"
+
+                size={42}
+
+                color={
+                  COLORS.green
+                }
+
+              />
+
+
+              <Text
+                style={
+                  styles.mapFallbackText
                 }
               >
-                Offer your price and choose
-                the best rider for you.
+                Google Maps API key unavailable
+              </Text>
+
+            </View>
+
+          )}
+
+
+          {/* --------------------------------------------------------------
+              ROUTE LOADING
+          -------------------------------------------------------------- */}
+
+          {routeLoading && (
+
+            <View
+              style={
+                styles.routeStatus
+              }
+            >
+
+              <ActivityIndicator
+
+                size="small"
+
+                color={
+                  COLORS.green
+                }
+
+              />
+
+
+              <Text
+                style={
+                  styles.routeStatusText
+                }
+              >
+                Calculating real route...
+              </Text>
+
+            </View>
+
+          )}
+
+
+          {/* --------------------------------------------------------------
+              ROUTE ERROR
+          -------------------------------------------------------------- */}
+
+          {routeError &&
+            !routeLoading && (
+
+            <View
+              style={
+                styles.routeError
+              }
+            >
+
+              <Ionicons
+
+                name="warning-outline"
+
+                size={17}
+
+                color={
+                  COLORS.red
+                }
+
+              />
+
+
+              <Text
+                style={
+                  styles.routeErrorText
+                }
+              >
+                Route unavailable
+              </Text>
+
+            </View>
+
+          )}
+
+
+          {/* --------------------------------------------------------------
+              REAL ROUTE SUMMARY
+          -------------------------------------------------------------- */}
+
+          {routeInfo &&
+            !routeLoading &&
+            routeInfo.distanceMeters > 0 && (
+
+            <View
+              style={
+                styles.mapSummary
+              }
+            >
+
+              <View
+                style={
+                  styles.mapSummaryItem
+                }
+              >
+
+                <Ionicons
+
+                  name="navigate-outline"
+
+                  size={17}
+
+                  color={
+                    COLORS.green
+                  }
+
+                />
+
+
+                <Text
+                  style={
+                    styles.mapSummaryText
+                  }
+                >
+                  {routeInfo.distanceText}
+                </Text>
+
+              </View>
+
+
+              <View
+                style={
+                  styles.mapSummaryDivider
+                }
+              />
+
+
+              <View
+                style={
+                  styles.mapSummaryItem
+                }
+              >
+
+                <Ionicons
+
+                  name="time-outline"
+
+                  size={17}
+
+                  color={
+                    COLORS.green
+                  }
+
+                />
+
+
+                <Text
+                  style={
+                    styles.mapSummaryText
+                  }
+                >
+                  {routeInfo.durationText}
+                </Text>
+
+              </View>
+
+            </View>
+
+          )}
+
+        </View>
+
+        {/* ================================================================
+            MAP END
+        ================================================================ */}
+
+
+        {/* ================================================================
+            REAL TRIP SUMMARY START
+        ================================================================ */}
+
+        <View
+          style={
+            styles.tripSummary
+          }
+        >
+
+
+          {/* DISTANCE */}
+
+          <View
+            style={
+              styles.summaryItem
+            }
+          >
+
+            <View
+              style={
+                styles.summaryIcon
+              }
+            >
+
+              <Ionicons
+
+                name="navigate-outline"
+
+                size={23}
+
+                color={
+                  COLORS.green
+                }
+
+              />
+
+            </View>
+
+
+            <View>
+
+              <Text
+                style={
+                  styles.summaryValue
+                }
+              >
+                {routeInfo
+                  ? routeInfo.distanceText
+                  : '—'}
+              </Text>
+
+
+              <Text
+                style={
+                  styles.summaryLabel
+                }
+              >
+                Distance
+              </Text>
+
+            </View>
+
+          </View>
+
+
+          <View
+            style={
+              styles.summaryDivider
+            }
+          />
+
+
+          {/* TIME */}
+
+          <View
+            style={
+              styles.summaryItem
+            }
+          >
+
+            <View
+              style={
+                styles.summaryIcon
+              }
+            >
+
+              <Ionicons
+
+                name="time-outline"
+
+                size={23}
+
+                color={
+                  COLORS.green
+                }
+
+              />
+
+            </View>
+
+
+            <View>
+
+              <Text
+                style={
+                  styles.summaryValue
+                }
+              >
+                {routeInfo
+                  ? routeInfo.durationText
+                  : '—'}
+              </Text>
+
+
+              <Text
+                style={
+                  styles.summaryLabel
+                }
+              >
+                Est. time
+              </Text>
+
+            </View>
+
+          </View>
+
+
+          <View
+            style={
+              styles.summaryDivider
+            }
+          />
+
+
+          {/* FARE */}
+
+          <View
+            style={
+              styles.summaryItem
+            }
+          >
+
+            <View
+              style={
+                styles.rupeeCircle
+              }
+            >
+
+              <Text
+                style={
+                  styles.rupeeText
+                }
+              >
+                ₹
               </Text>
 
             </View>
 
 
-            <Ionicons
-              name="arrow-forward"
-              size={25}
-              color={
-                COLORS.black
-              }
-            />
+            <View>
+
+              <Text
+                style={
+                  styles.summaryLabel
+                }
+              >
+                Suggested
+              </Text>
+
+
+              <Text
+                style={
+                  styles.summaryFare
+                }
+              >
+
+                {suggestedFare
+
+                  ? `₹${suggestedFare.minimum}–₹${suggestedFare.maximum}`
+
+                  : '—'
+
+                }
+
+              </Text>
+
+            </View>
 
           </View>
 
+        </View>
 
-          {/* ================================================================
-              MAIN CTA
-          ================================================================= */}
-
-          <Pressable
-            style={
-              styles.mainButton
-            }
-
-            onPress={
-              handleMakeOffer
-            }
-          >
-
-            <Text
-              style={
-                styles.mainButtonText
-              }
-            >
-              See Suggested Fare & Make an Offer
-            </Text>
+        {/* ================================================================
+            REAL TRIP SUMMARY END
+        ================================================================ */}
 
 
-            <Ionicons
-              name="arrow-forward"
-              size={27}
-              color={
-                COLORS.white
-              }
-            />
+        {/* ================================================================
+            VEHICLE SECTION START
+        ================================================================ */}
 
-          </Pressable>
+        <Text
+          style={
+            styles.sectionTitle
+          }
+        >
+          Choose a vehicle
+        </Text>
 
 
-          {/* ================================================================
-              TRUST
-          ================================================================= */}
+        <View
+          style={
+            styles.vehicleRow
+          }
+        >
+
+          {VEHICLES.map(
+            (
+              vehicle,
+            ) => {
+
+              const active =
+                selectedVehicle ===
+                vehicle.id;
+
+
+              const vehicleFare =
+                calculateSuggestedFare(
+
+                  vehicle.id,
+
+                  routeInfo?.distanceMeters ||
+                    0,
+
+                  routeInfo?.durationSeconds ||
+                    0,
+
+                );
+
+
+              return (
+
+                <Pressable
+
+                  key={
+                    vehicle.id
+                  }
+
+                  style={[
+
+                    styles.vehicleCard,
+
+                    active &&
+                      styles.vehicleCardActive,
+
+                  ]}
+
+                  onPress={() =>
+
+                    setSelectedVehicle(
+                      vehicle.id,
+                    )
+
+                  }
+
+                >
+
+
+                  {/* VEHICLE ICON */}
+
+                  <View
+                    style={[
+
+                      styles.vehicleIcon,
+
+                      active &&
+                        styles.vehicleIconActive,
+
+                    ]}
+                  >
+
+                    <Ionicons
+
+                      name={
+                        vehicle.icon as any
+                      }
+
+                      size={38}
+
+                      color={
+
+                        active
+
+                          ? COLORS.green
+
+                          : COLORS.black
+
+                      }
+
+                    />
+
+                  </View>
+
+
+                  {/* VEHICLE NAME */}
+
+                  <Text
+                    style={
+                      styles.vehicleName
+                    }
+                  >
+                    {vehicle.name}
+                  </Text>
+
+
+                  {/* VEHICLE CAPACITY */}
+
+                  <Text
+                    style={
+                      styles.vehicleSubtitle
+                    }
+                  >
+                    {vehicle.subtitle}
+                  </Text>
+
+
+                  {/* VEHICLE REAL-TIME FARE */}
+
+                  <Text
+                    style={[
+
+                      styles.vehicleFare,
+
+                      active &&
+                        styles.vehicleFareActive,
+
+                    ]}
+                  >
+
+                    {vehicleFare
+
+                      ? `₹${vehicleFare.minimum} – ₹${vehicleFare.maximum}`
+
+                      : 'Calculating...'
+
+                    }
+
+                  </Text>
+
+
+                  {/* RECOMMENDED */}
+
+                  {active &&
+                    vehicleFare && (
+
+                    <View
+                      style={
+                        styles.recommendedBadge
+                      }
+                    >
+
+                      <Text
+                        style={
+                          styles.recommendedText
+                        }
+                      >
+                        ₹
+                        {
+                          vehicleFare.recommended
+                        } recommended
+                      </Text>
+
+                    </View>
+
+                  )}
+
+                </Pressable>
+
+              );
+
+            },
+          )}
+
+        </View>
+
+        {/* ================================================================
+            VEHICLE SECTION END
+        ================================================================ */}
+
+
+        {/* ================================================================
+            FARE EXPLANATION START
+        ================================================================ */}
+
+        <View
+          style={
+            styles.fareInfoCard
+          }
+        >
 
           <View
             style={
-              styles.trustRow
+              styles.fareInfoIcon
             }
           >
 
             <Ionicons
-              name="shield-checkmark-outline"
-              size={16}
+
+              name="pricetag-outline"
+
+              size={24}
+
               color={
                 COLORS.green
               }
+
             />
+
+          </View>
+
+
+          <View
+            style={
+              styles.fareInfoContent
+            }
+          >
+
+            <Text
+              style={
+                styles.fareInfoTitle
+              }
+            >
+              Suggested fare updates with your trip
+            </Text>
 
 
             <Text
               style={
-                styles.trustText
+                styles.fareInfoText
               }
             >
-              Transparent fares • Trusted riders
+              Your suggested fare is calculated from
+              the real road distance and estimated travel
+              time for this trip.
             </Text>
 
           </View>
 
-        </ScrollView>
+        </View>
 
-      </View>
+        {/* ================================================================
+            FARE EXPLANATION END
+        ================================================================ */}
+
+
+        {/* ================================================================
+            SELECTED FARE HIGHLIGHT START
+        ================================================================ */}
+
+        {suggestedFare && (
+
+          <View
+            style={
+              styles.selectedFareCard
+            }
+          >
+
+            <View>
+
+              <Text
+                style={
+                  styles.selectedFareLabel
+                }
+              >
+                {selectedVehicle === 'bike'
+                  ? 'Bike'
+                  : 'Auto'}{' '}
+                • Suggested Fare
+              </Text>
+
+
+              <Text
+                style={
+                  styles.selectedFareAmount
+                }
+              >
+                ₹
+                {
+                  suggestedFare.minimum
+                }
+                {' – ₹'}
+                {
+                  suggestedFare.maximum
+                }
+              </Text>
+
+            </View>
+
+
+            <View
+              style={
+                styles.goodOfferBadge
+              }
+            >
+
+              <Ionicons
+
+                name="checkmark-circle"
+
+                size={18}
+
+                color={
+                  COLORS.green
+                }
+
+              />
+
+
+              <Text
+                style={
+                  styles.goodOfferText
+                }
+              >
+                ₹
+                {
+                  suggestedFare.recommended
+                }{' '}
+                recommended
+              </Text>
+
+            </View>
+
+          </View>
+
+        )}
+
+        {/* ================================================================
+            SELECTED FARE HIGHLIGHT END
+        ================================================================ */}
+
+
+        {/* ================================================================
+            MAIN CTA START
+        ================================================================ */}
+
+        <Pressable
+
+          style={[
+
+            styles.mainButton,
+
+            !suggestedFare &&
+              styles.mainButtonDisabled,
+
+          ]}
+
+          disabled={
+            !suggestedFare
+          }
+
+          onPress={
+            handleContinue
+          }
+
+        >
+
+          <Text
+            style={
+              styles.mainButtonText
+            }
+          >
+            Continue to Set Your Price
+          </Text>
+
+
+          <Ionicons
+
+            name="arrow-forward"
+
+            size={26}
+
+            color={
+              COLORS.white
+            }
+
+          />
+
+        </Pressable>
+
+        {/* ================================================================
+            MAIN CTA END
+        ================================================================ */}
+
+
+        {/* ================================================================
+            TRUST ROW START
+        ================================================================ */}
+
+        <View
+          style={
+            styles.trustRow
+          }
+        >
+
+          <Ionicons
+
+            name="shield-checkmark-outline"
+
+            size={17}
+
+            color={
+              COLORS.green
+            }
+
+          />
+
+
+          <Text
+            style={
+              styles.trustText
+            }
+          >
+            Transparent pricing • Trusted rides
+          </Text>
+
+        </View>
+
+        {/* ================================================================
+            TRUST ROW END
+        ================================================================ */}
+
+
+        {/* ================================================================
+            BOTTOM SPACE
+        ================================================================ */}
+
+        <View
+          style={
+            styles.bottomSpace
+          }
+        />
+
+      </ScrollView>
 
     </SafeAreaView>
 
@@ -2325,15 +2836,21 @@ export default function TripDetailsScreen() {
 
 }
 
+/* =========================================================================
+   TRIP DETAILS SCREEN END
+   ========================================================================= */
 
-/*
-|--------------------------------------------------------------------------
-| STYLES
-|--------------------------------------------------------------------------
-*/
+
+/* =========================================================================
+   RIDEX STYLES START
+   ========================================================================= */
 
 const styles =
   StyleSheet.create({
+
+    /* =====================================================================
+       SCREEN
+       ===================================================================== */
 
     safeArea: {
 
@@ -2344,7 +2861,6 @@ const styles =
 
     },
 
-
     screen: {
 
       flex: 1,
@@ -2354,16 +2870,25 @@ const styles =
 
     },
 
+    screenContent: {
 
-    /*
-    |--------------------------------------------------------------------------
-    | HEADER
-    |--------------------------------------------------------------------------
-    */
+      paddingHorizontal:
+        20,
+
+      paddingBottom:
+        40,
+
+    },
+
+
+    /* =====================================================================
+       HEADER
+       ===================================================================== */
 
     header: {
 
-      height: 82,
+      minHeight:
+        70,
 
       flexDirection:
         'row',
@@ -2371,19 +2896,21 @@ const styles =
       alignItems:
         'center',
 
-      paddingHorizontal: 22,
-
-      backgroundColor:
-        COLORS.white,
+      justifyContent:
+        'space-between',
 
     },
 
-
     backButton: {
 
-      width: 42,
+      width:
+        44,
 
-      height: 42,
+      height:
+        44,
+
+      borderRadius:
+        22,
 
       alignItems:
         'center',
@@ -2393,20 +2920,20 @@ const styles =
 
     },
 
-
     headerCenter: {
 
-      flex: 1,
+      flex:
+        1,
 
       alignItems:
         'center',
 
     },
 
-
     headerTitle: {
 
-      fontSize: 23,
+      fontSize:
+        21,
 
       fontWeight:
         '800',
@@ -2416,85 +2943,82 @@ const styles =
 
     },
 
-
     headerSubtitle: {
 
-      marginTop: 3,
+      marginTop:
+        3,
 
-      fontSize: 14,
+      fontSize:
+        12,
 
       color:
         COLORS.gray,
 
     },
 
-
     headerSpacer: {
 
-      width: 42,
+      width:
+        44,
 
     },
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | CONTENT
-    |--------------------------------------------------------------------------
-    */
-
-    content: {
-
-      paddingHorizontal: 18,
-
-      paddingBottom: 35,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | LOCATION CARD
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================================
+       LOCATION CARD
+       ===================================================================== */
 
     locationCard: {
+
+      position:
+        'relative',
 
       backgroundColor:
         COLORS.white,
 
-      borderRadius: 25,
+      borderRadius:
+        22,
 
-      paddingHorizontal: 18,
+      paddingHorizontal:
+        16,
 
-      paddingVertical: 16,
+      paddingVertical:
+        16,
 
-      marginBottom: 12,
+      marginBottom:
+        14,
+
+      borderWidth:
+        1,
+
+      borderColor:
+        COLORS.border,
 
       shadowColor:
         '#000',
 
       shadowOffset: {
 
-        width: 0,
+        width:
+          0,
 
-        height: 5,
+        height:
+          4,
 
       },
 
       shadowOpacity:
-        0.08,
+        0.07,
 
       shadowRadius:
-        15,
+        12,
 
-      elevation: 5,
+      elevation:
+        4,
 
     },
 
-
     locationRow: {
-
-      minHeight: 72,
 
       flexDirection:
         'row',
@@ -2502,15 +3026,15 @@ const styles =
       alignItems:
         'center',
 
+      minHeight:
+        64,
+
     },
 
+    markerColumn: {
 
-    timeline: {
-
-      width: 38,
-
-      alignSelf:
-        'stretch',
+      width:
+        42,
 
       alignItems:
         'center',
@@ -2520,102 +3044,115 @@ const styles =
 
     },
 
+    pickupMarker: {
+
+      width:
+        25,
+
+      height:
+        25,
+
+      borderRadius:
+        13,
+
+      borderWidth:
+        2,
+
+      borderColor:
+        COLORS.green,
+
+      backgroundColor:
+        COLORS.greenSoft,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
 
     pickupDot: {
 
-      width: 19,
+      width:
+        8,
 
-      height: 19,
+      height:
+        8,
 
-      borderRadius: 10,
+      borderRadius:
+        4,
 
       backgroundColor:
         COLORS.green,
 
-      borderWidth: 5,
-
-      borderColor:
-        COLORS.greenSoft,
-
     },
 
-
-    dropDot: {
-
-      width: 19,
-
-      height: 19,
-
-      borderRadius: 10,
-
-      backgroundColor:
-        COLORS.red,
-
-      borderWidth: 5,
-
-      borderColor:
-        '#FDECEF',
-
-    },
-
-
-    timelineLine: {
+    locationConnector: {
 
       position:
         'absolute',
 
-      width: 2,
+      left:
+        36,
 
-      height: 37,
+      top:
+        69,
+
+      width:
+        2,
+
+      height:
+        42,
 
       backgroundColor:
-        '#E4E7E9',
-
-      top: 44,
+        '#B9E3CA',
 
     },
 
+    locationText: {
 
-    locationInfo: {
+      flex:
+        1,
 
-      flex: 1,
-
-      paddingLeft: 10,
+      marginLeft:
+        9,
 
     },
-
 
     pickupLabel: {
 
-      fontSize: 15,
+      fontSize:
+        13,
+
+      fontWeight:
+        '800',
 
       color:
         COLORS.green,
 
-      fontWeight:
-        '700',
-
     },
-
 
     dropLabel: {
 
-      fontSize: 15,
+      fontSize:
+        13,
+
+      fontWeight:
+        '800',
 
       color:
         COLORS.red,
 
-      fontWeight:
-        '700',
-
     },
-
 
     locationName: {
 
-      marginTop: 4,
+      marginTop:
+        3,
 
-      fontSize: 20,
+      fontSize:
+        16,
 
       fontWeight:
         '800',
@@ -2625,12 +3162,13 @@ const styles =
 
     },
 
-
     locationAddress: {
 
-      marginTop: 3,
+      marginTop:
+        3,
 
-      fontSize: 14,
+      fontSize:
+        12,
 
       color:
         COLORS.gray,
@@ -2638,74 +3176,36 @@ const styles =
     },
 
 
-    locationAction: {
-
-      width: 48,
-
-      height: 48,
-
-      borderRadius: 24,
-
-      borderWidth: 1,
-
-      borderColor:
-        COLORS.border,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-      backgroundColor:
-        COLORS.white,
-
-    },
-
-
-    locationDivider: {
-
-      height: 1,
-
-      backgroundColor:
-        COLORS.border,
-
-      marginLeft: 48,
-
-      marginVertical: 4,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | MAP
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================================
+       MAP
+       ===================================================================== */
 
     mapContainer: {
 
-      height: 350,
+      height:
+        275,
 
-      borderRadius: 24,
+      borderRadius:
+        23,
 
       overflow:
         'hidden',
 
-      marginBottom: 12,
-
       backgroundColor:
         COLORS.mapBackground,
+
+      marginBottom:
+        14,
 
       position:
         'relative',
 
     },
 
-
     mapFallback: {
 
-      flex: 1,
+      flex:
+        1,
 
       alignItems:
         'center',
@@ -2713,93 +3213,38 @@ const styles =
       justifyContent:
         'center',
 
-      backgroundColor:
-        COLORS.mapBackground,
-
     },
-
 
     mapFallbackText: {
 
-      marginTop: 8,
+      marginTop:
+        8,
+
+      fontSize:
+        13,
 
       color:
         COLORS.gray,
 
-      fontSize: 14,
-
     },
 
+    mapPickupMarker: {
 
-    pickupMapMarker: {
+      width:
+        30,
 
-      width: 34,
+      height:
+        30,
 
-      height: 34,
+      borderRadius:
+        15,
 
-      borderRadius: 17,
-
-      backgroundColor:
-        COLORS.white,
-
-      borderWidth: 3,
+      borderWidth:
+        4,
 
       borderColor:
         COLORS.green,
 
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    pickupMapDot: {
-
-      width: 12,
-
-      height: 12,
-
-      borderRadius: 6,
-
-      backgroundColor:
-        COLORS.green,
-
-    },
-
-
-    dropMapMarker: {
-
-      width: 42,
-
-      height: 42,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    layersButton: {
-
-      position:
-        'absolute',
-
-      right: 14,
-
-      top: 14,
-
-      width: 52,
-
-      height: 52,
-
-      borderRadius: 26,
-
       backgroundColor:
         COLORS.white,
 
@@ -2809,136 +3254,50 @@ const styles =
       justifyContent:
         'center',
 
-      shadowColor:
-        '#000',
-
-      shadowOffset: {
-
-        width: 0,
-
-        height: 2,
-
-      },
-
-      shadowOpacity:
-        0.12,
-
-      shadowRadius:
-        6,
-
-      elevation: 4,
-
     },
 
+    mapPickupDot: {
 
-    mapLabel: {
+      width:
+        9,
 
-      position:
-        'absolute',
+      height:
+        9,
+
+      borderRadius:
+        5,
 
       backgroundColor:
-        COLORS.white,
-
-      borderRadius: 14,
-
-      paddingHorizontal: 14,
-
-      paddingVertical: 10,
-
-      shadowColor:
-        '#000',
-
-      shadowOffset: {
-
-        width: 0,
-
-        height: 3,
-
-      },
-
-      shadowOpacity:
-        0.12,
-
-      shadowRadius:
-        7,
-
-      elevation: 4,
-
-    },
-
-
-    pickupMapLabel: {
-
-      left: 16,
-
-      top: 72,
-
-    },
-
-
-    dropMapLabel: {
-
-      right: 15,
-
-      bottom: 38,
-
-    },
-
-
-    mapLabelTitleGreen: {
-
-      fontSize: 14,
-
-      fontWeight:
-        '800',
-
-      color:
         COLORS.green,
 
     },
 
+    mapDropMarker: {
 
-    mapLabelTitleRed: {
+      width:
+        42,
 
-      fontSize: 14,
+      height:
+        42,
 
-      fontWeight:
-        '800',
+      alignItems:
+        'center',
 
-      color:
-        COLORS.red,
-
-    },
-
-
-    mapLabelText: {
-
-      marginTop: 3,
-
-      fontSize: 14,
-
-      color:
-        COLORS.gray,
-
-      maxWidth: 170,
+      justifyContent:
+        'center',
 
     },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | ROUTE STATUS
-    |--------------------------------------------------------------------------
-    */
 
     routeStatus: {
 
       position:
         'absolute',
 
-      left: 16,
+      top:
+        14,
 
-      bottom: 16,
+      left:
+        14,
 
       flexDirection:
         'row',
@@ -2946,60 +3305,68 @@ const styles =
       alignItems:
         'center',
 
+      paddingHorizontal:
+        13,
+
+      paddingVertical:
+        9,
+
+      borderRadius:
+        18,
+
       backgroundColor:
         COLORS.white,
-
-      paddingHorizontal: 14,
-
-      paddingVertical: 10,
-
-      borderRadius: 18,
 
       shadowColor:
         '#000',
 
+      shadowOpacity:
+        0.10,
+
+      shadowRadius:
+        8,
+
       shadowOffset: {
 
-        width: 0,
+        width:
+          0,
 
-        height: 2,
+        height:
+          2,
 
       },
 
-      shadowOpacity:
-        0.12,
-
-      shadowRadius:
-        6,
-
-      elevation: 4,
+      elevation:
+        5,
 
     },
-
 
     routeStatusText: {
 
-      marginLeft: 8,
+      marginLeft:
+        7,
 
-      fontSize: 13,
+      fontSize:
+        12,
 
       fontWeight:
-        '600',
+        '700',
 
       color:
-        COLORS.gray,
+        COLORS.black,
 
     },
 
-
-    routeLoading: {
+    routeError: {
 
       position:
         'absolute',
 
-      left: 16,
+      top:
+        14,
 
-      bottom: 16,
+      left:
+        14,
 
       flexDirection:
         'row',
@@ -3007,44 +3374,155 @@ const styles =
       alignItems:
         'center',
 
+      paddingHorizontal:
+        13,
+
+      paddingVertical:
+        9,
+
+      borderRadius:
+        18,
+
       backgroundColor:
         COLORS.white,
 
-      paddingHorizontal: 12,
-
-      paddingVertical: 9,
-
-      borderRadius: 16,
+      elevation:
+        5,
 
     },
 
+    routeErrorText: {
 
-    routeLoadingText: {
+      marginLeft:
+        6,
 
-      marginLeft: 7,
+      fontSize:
+        12,
 
-      fontSize: 12,
+      fontWeight:
+        '700',
 
       color:
-        COLORS.gray,
+        COLORS.red,
+
+    },
+
+    mapSummary: {
+
+      position:
+        'absolute',
+
+      left:
+        14,
+
+      bottom:
+        14,
+
+      minHeight:
+        43,
+
+      borderRadius:
+        22,
+
+      backgroundColor:
+        COLORS.white,
+
+      paddingHorizontal:
+        14,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      shadowColor:
+        '#000',
+
+      shadowOpacity:
+        0.10,
+
+      shadowRadius:
+        8,
+
+      shadowOffset: {
+
+        width:
+          0,
+
+        height:
+          2,
+
+      },
+
+      elevation:
+        5,
+
+    },
+
+    mapSummaryItem: {
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+    },
+
+    mapSummaryText: {
+
+      marginLeft:
+        5,
+
+      fontSize:
+        13,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+    mapSummaryDivider: {
+
+      width:
+        1,
+
+      height:
+        20,
+
+      backgroundColor:
+        COLORS.border,
+
+      marginHorizontal:
+        12,
 
     },
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | ROUTE SUMMARY
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================================
+       TRIP SUMMARY
+       ===================================================================== */
 
-    routeCard: {
+    tripSummary: {
 
-      minHeight: 106,
+      minHeight:
+        100,
 
-      borderRadius: 23,
+      borderRadius:
+        22,
 
       backgroundColor:
         COLORS.white,
+
+      borderWidth:
+        1,
+
+      borderColor:
+        COLORS.border,
 
       flexDirection:
         'row',
@@ -3055,35 +3533,40 @@ const styles =
       justifyContent:
         'space-around',
 
-      paddingHorizontal: 8,
+      paddingHorizontal:
+        6,
 
-      marginBottom: 24,
+      marginBottom:
+        20,
 
       shadowColor:
         '#000',
 
+      shadowOpacity:
+        0.06,
+
+      shadowRadius:
+        10,
+
       shadowOffset: {
 
-        width: 0,
+        width:
+          0,
 
-        height: 5,
+        height:
+          3,
 
       },
 
-      shadowOpacity:
-        0.08,
-
-      shadowRadius:
-        14,
-
-      elevation: 4,
+      elevation:
+        3,
 
     },
 
+    summaryItem: {
 
-    routeItem: {
-
-      flex: 1,
+      flex:
+        1,
 
       flexDirection:
         'row',
@@ -3094,18 +3577,21 @@ const styles =
       justifyContent:
         'center',
 
-      gap: 8,
+      gap:
+        7,
 
     },
 
+    summaryIcon: {
 
-    routeIconCircle: {
+      width:
+        42,
 
-      width: 46,
+      height:
+        42,
 
-      height: 46,
-
-      borderRadius: 23,
+      borderRadius:
+        21,
 
       backgroundColor:
         COLORS.greenVerySoft,
@@ -3118,133 +3604,58 @@ const styles =
 
     },
 
+    summaryDivider: {
 
-    routeValue: {
+      width:
+        1,
 
-      fontSize: 18,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.black,
-
-    },
-
-
-    routeLabel: {
-
-      marginTop: 3,
-
-      fontSize: 12,
-
-      color:
-        COLORS.gray,
-
-    },
-
-
-    routeDivider: {
-
-      width: 1,
-
-      height: 55,
+      height:
+        50,
 
       backgroundColor:
         COLORS.border,
 
     },
 
+    summaryValue: {
 
-    rupeeSymbol: {
-
-      fontSize: 28,
+      fontSize:
+        16,
 
       fontWeight:
-        '700',
+        '800',
 
       color:
-        COLORS.green,
+        COLORS.black,
 
     },
 
+    summaryLabel: {
 
-    routeSmallLabel: {
+      marginTop:
+        2,
 
-      fontSize: 12,
+      fontSize:
+        11,
 
       color:
         COLORS.gray,
 
     },
 
+    rupeeCircle: {
 
-    routeFare: {
+      width:
+        42,
 
-      marginTop: 2,
+      height:
+        42,
 
-      fontSize: 17,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.black,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | SECTION
-    |--------------------------------------------------------------------------
-    */
-
-    sectionTitle: {
-
-      fontSize: 18,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.black,
-
-      marginBottom: 12,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | VEHICLES
-    |--------------------------------------------------------------------------
-    */
-
-    vehicleRow: {
-
-      paddingBottom: 18,
-
-      gap: 12,
-
-    },
-
-
-    vehicleCard: {
-
-      width: 145,
-
-      minHeight: 215,
-
-      borderRadius: 22,
+      borderRadius:
+        21,
 
       backgroundColor:
-        COLORS.white,
-
-      borderWidth: 1,
-
-      borderColor:
-        COLORS.border,
+        COLORS.greenVerySoft,
 
       alignItems:
         'center',
@@ -3252,53 +3663,155 @@ const styles =
       justifyContent:
         'center',
 
-      paddingHorizontal: 10,
+    },
+
+    rupeeText: {
+
+      fontSize:
+        23,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.green,
+
+    },
+
+    summaryFare: {
+
+      marginTop:
+        2,
+
+      fontSize:
+        14,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.green,
+
+    },
+
+
+    /* =====================================================================
+       SECTION TITLE
+       ===================================================================== */
+
+    sectionTitle: {
+
+      marginBottom:
+        12,
+
+      fontSize:
+        18,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    /* =====================================================================
+       VEHICLE CARDS
+       ===================================================================== */
+
+    vehicleRow: {
+
+      flexDirection:
+        'row',
+
+      gap:
+        12,
+
+      marginBottom:
+        18,
+
+    },
+
+    vehicleCard: {
+
+      flex:
+        1,
+
+      minHeight:
+        205,
+
+      borderRadius:
+        22,
+
+      borderWidth:
+        1,
+
+      borderColor:
+        COLORS.border,
+
+      backgroundColor:
+        COLORS.white,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+      paddingHorizontal:
+        10,
 
       shadowColor:
         '#000',
-
-      shadowOffset: {
-
-        width: 0,
-
-        height: 3,
-
-      },
 
       shadowOpacity:
         0.05,
 
       shadowRadius:
-        9,
+        8,
 
-      elevation: 2,
+      shadowOffset: {
+
+        width:
+          0,
+
+        height:
+          3,
+
+      },
+
+      elevation:
+        2,
 
     },
 
-
     vehicleCardActive: {
+
+      borderWidth:
+        2,
 
       borderColor:
         COLORS.green,
-
-      borderWidth: 2,
 
       backgroundColor:
         '#FBFFFD',
 
     },
 
+    vehicleIcon: {
 
-    vehicleIconCircle: {
+      width:
+        78,
 
-      width: 86,
+      height:
+        78,
 
-      height: 86,
-
-      borderRadius: 43,
+      borderRadius:
+        39,
 
       backgroundColor:
-        '#F3F8EF',
+        '#F3F7EF',
 
       alignItems:
         'center',
@@ -3306,22 +3819,22 @@ const styles =
       justifyContent:
         'center',
 
-      marginBottom: 13,
+      marginBottom:
+        12,
 
     },
 
-
-    vehicleIconCircleActive: {
+    vehicleIconActive: {
 
       backgroundColor:
-        '#EFF8E9',
+        COLORS.greenSoft,
 
     },
-
 
     vehicleName: {
 
-      fontSize: 19,
+      fontSize:
+        18,
 
       fontWeight:
         '800',
@@ -3331,33 +3844,37 @@ const styles =
 
     },
 
-
     vehicleSubtitle: {
 
-      marginTop: 4,
+      marginTop:
+        3,
 
-      fontSize: 13,
+      fontSize:
+        12,
 
       color:
         COLORS.gray,
 
     },
 
-
     vehicleFare: {
 
-      marginTop: 13,
+      marginTop:
+        12,
 
-      fontSize: 16,
+      fontSize:
+        15,
 
       fontWeight:
-        '700',
+        '800',
 
       color:
         COLORS.black,
 
-    },
+      textAlign:
+        'center',
 
+    },
 
     vehicleFareActive: {
 
@@ -3366,18 +3883,50 @@ const styles =
 
     },
 
+    recommendedBadge: {
 
-    /*
-    |--------------------------------------------------------------------------
-    | OFFER CARD
-    |--------------------------------------------------------------------------
-    */
+      marginTop:
+        6,
 
-    offerCard: {
+      paddingHorizontal:
+        8,
 
-      minHeight: 105,
+      paddingVertical:
+        4,
 
-      borderRadius: 23,
+      borderRadius:
+        10,
+
+      backgroundColor:
+        COLORS.greenSoft,
+
+    },
+
+    recommendedText: {
+
+      fontSize:
+        10,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.green,
+
+    },
+
+
+    /* =====================================================================
+       FARE INFORMATION
+       ===================================================================== */
+
+    fareInfoCard: {
+
+      minHeight:
+        88,
+
+      borderRadius:
+        20,
 
       backgroundColor:
         COLORS.greenVerySoft,
@@ -3388,23 +3937,27 @@ const styles =
       alignItems:
         'center',
 
-      paddingHorizontal: 15,
+      paddingHorizontal:
+        14,
 
-      marginBottom: 16,
+      marginBottom:
+        12,
 
     },
 
+    fareInfoIcon: {
 
-    offerIcon: {
+      width:
+        50,
 
-      width: 54,
+      height:
+        50,
 
-      height: 54,
-
-      borderRadius: 27,
+      borderRadius:
+        25,
 
       backgroundColor:
-        '#E1F4E8',
+        COLORS.greenSoft,
 
       alignItems:
         'center',
@@ -3414,23 +3967,20 @@ const styles =
 
     },
 
+    fareInfoContent: {
 
-    offerContent: {
+      flex:
+        1,
 
-      flex: 1,
-
-      marginLeft: 14,
-
-      marginRight: 8,
+      marginLeft:
+        12,
 
     },
 
+    fareInfoTitle: {
 
-    offerTitle: {
-
-      fontSize: 16,
-
-      lineHeight: 22,
+      fontSize:
+        14,
 
       fontWeight:
         '800',
@@ -3440,14 +3990,16 @@ const styles =
 
     },
 
+    fareInfoText: {
 
-    offerSubtitle: {
+      marginTop:
+        4,
 
-      marginTop: 4,
+      fontSize:
+        12,
 
-      fontSize: 13,
-
-      lineHeight: 19,
+      lineHeight:
+        17,
 
       color:
         COLORS.gray,
@@ -3455,17 +4007,126 @@ const styles =
     },
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | MAIN CTA
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================================
+       SELECTED FARE
+       ===================================================================== */
+
+    selectedFareCard: {
+
+      minHeight:
+        82,
+
+      borderRadius:
+        20,
+
+      borderWidth:
+        1,
+
+      borderColor:
+        '#CFEADB',
+
+      backgroundColor:
+        COLORS.white,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'space-between',
+
+      paddingHorizontal:
+        16,
+
+      marginBottom:
+        14,
+
+    },
+
+    selectedFareLabel: {
+
+      fontSize:
+        12,
+
+      fontWeight:
+        '700',
+
+      color:
+        COLORS.gray,
+
+    },
+
+    selectedFareAmount: {
+
+      marginTop:
+        3,
+
+      fontSize:
+        22,
+
+      fontWeight:
+        '900',
+
+      color:
+        COLORS.green,
+
+    },
+
+    goodOfferBadge: {
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      backgroundColor:
+        COLORS.greenSoft,
+
+      borderRadius:
+        15,
+
+      paddingHorizontal:
+        9,
+
+      paddingVertical:
+        7,
+
+      maxWidth:
+        145,
+
+    },
+
+    goodOfferText: {
+
+      marginLeft:
+        4,
+
+      fontSize:
+        10,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.green,
+
+    },
+
+
+    /* =====================================================================
+       MAIN BUTTON
+       ===================================================================== */
 
     mainButton: {
 
-      minHeight: 66,
+      minHeight:
+        64,
 
-      borderRadius: 20,
+      borderRadius:
+        20,
 
       backgroundColor:
         COLORS.green,
@@ -3479,21 +4140,62 @@ const styles =
       justifyContent:
         'center',
 
-      paddingHorizontal: 20,
+      paddingHorizontal:
+        18,
 
-      marginBottom: 12,
+      marginBottom:
+        9,
+
+      shadowColor:
+        COLORS.green,
+
+      shadowOpacity:
+        0.18,
+
+      shadowRadius:
+        8,
+
+      shadowOffset: {
+
+        width:
+          0,
+
+        height:
+          4,
+
+      },
+
+      elevation:
+        4,
 
     },
 
+    mainButtonDisabled: {
+
+      backgroundColor:
+        '#C7D1CC',
+
+      shadowOpacity:
+        0,
+
+      elevation:
+        0,
+
+    },
 
     mainButtonText: {
 
-      flex: 1,
+      flex:
+        1,
 
       textAlign:
         'center',
 
-      fontSize: 17,
+      marginLeft:
+        25,
+
+      fontSize:
+        16,
 
       fontWeight:
         '800',
@@ -3501,16 +4203,12 @@ const styles =
       color:
         COLORS.white,
 
-      marginLeft: 22,
-
     },
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | TRUST
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================================
+       TRUST
+       ===================================================================== */
 
     trustRow: {
 
@@ -3523,20 +4221,38 @@ const styles =
       justifyContent:
         'center',
 
-      paddingVertical: 5,
+      paddingVertical:
+        5,
 
     },
 
-
     trustText: {
 
-      marginLeft: 6,
+      marginLeft:
+        6,
 
-      fontSize: 12,
+      fontSize:
+        12,
 
       color:
         COLORS.gray,
 
     },
 
+
+    /* =====================================================================
+       BOTTOM SPACE
+       ===================================================================== */
+
+    bottomSpace: {
+
+      height:
+        25,
+
+    },
+
   });
+
+/* =========================================================================
+   RIDEX STYLES END
+   ========================================================================= */
