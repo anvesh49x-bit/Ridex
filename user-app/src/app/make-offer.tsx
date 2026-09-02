@@ -365,24 +365,44 @@ export default function MakeOfferScreen() {
 
   const handleSendRequest = () => {
 
-    if (offerAmount <= 0) {
-
-      Alert.alert(
-        'Enter your offer',
-        'Please enter the amount you would like to offer.',
-      );
-
-      return;
-    }
-
+  if (offerAmount <= 0) {
 
     Alert.alert(
-      'Offer ready',
-      `${money(offerAmount)} ${paymentMethod === 'cash' ? 'Cash' : 'UPI'} offer selected.\n\nRider matching will be connected in the next milestone.`,
+      'Enter your offer',
+      'Please enter the amount you would like to offer.',
     );
 
-  };
+    return;
+  }
 
+
+  router.push({
+  pathname: '/rider-responses' as any,
+  
+    params: {
+      pickupName,
+      pickupAddress,
+
+      dropName,
+      dropAddress,
+
+      distanceText,
+      durationText,
+
+      vehicle:
+        params.vehicle ||
+        'bike',
+
+      userOffer:
+        String(offerAmount),
+
+      paymentMethod,
+
+      note,
+    },
+  });
+
+};
   /* =======================================================================
      SEND REQUEST END
      ======================================================================= */
