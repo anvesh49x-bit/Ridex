@@ -1,8 +1,15 @@
-import React, { useCallback } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import {
+  ActivityIndicator,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -15,26 +22,51 @@ import {
 
 import { Ionicons } from '@expo/vector-icons';
 
+import {
+  APIProvider,
+  AdvancedMarker,
+  Map,
+} from '@vis.gl/react-google-maps';
+
 
 /*
 |--------------------------------------------------------------------------
-| RIDEX HOME PAGE
+| RIDEX HOME
 |--------------------------------------------------------------------------
 |
-| Main purpose of this screen:
+| IMPORTANT ARCHITECTURE
 |
-| 1. Tell the user immediately what to do.
-| 2. Let them choose pickup location.
-| 3. Let them choose destination.
-| 4. Show selected locations.
-| 5. Eventually start the ride-booking flow.
+| Home is intentionally kept simple.
 |
-| IMPORTANT:
-| This page currently uses a visual/mock map.
-| Real GPS + Google Maps/Mapbox + Places API will be connected later.
+| Home is responsible for:
+|
+| 1. Starting the ride flow
+| 2. Showing pickup / destination
+| 3. Showing a map preview
+| 4. Showing quick places
+|
+| Home is NOT responsible for:
+|
+| - Route calculation
+| - Vehicle selection
+| - Fare calculation
+| - Price negotiation
+| - Rider matching
+|
+| Those belong to Trip Details and later booking screens.
 |
 |--------------------------------------------------------------------------
 */
+
+
+/*
+|--------------------------------------------------------------------------
+| GOOGLE
+|--------------------------------------------------------------------------
+*/
+
+const GOOGLE_API_KEY =
+  process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
 
 /*
@@ -44,24 +76,56 @@ import { Ionicons } from '@expo/vector-icons';
 */
 
 const COLORS = {
-  green: '#079A4B',
-  greenLight: '#EAF8F1',
 
-  red: '#EF3154',
-  blue: '#1685E8',
+  green:
+    '#079A4B',
 
-  black: '#111820',
-  gray: '#737C88',
-  lightGray: '#A0A6AD',
+  greenSoft:
+    '#EAF8F1',
 
-  border: '#E7EAED',
+  red:
+    '#EF3154',
 
-  white: '#FFFFFF',
+  black:
+    '#111820',
 
-  mapBackground: '#EEF3F2',
-  mapRoad: '#D8E0E1',
-  mapRoadWhite: '#FFFFFF',
+  gray:
+    '#737C88',
+
+  muted:
+    '#9AA1AA',
+
+  border:
+    '#E7EAED',
+
+  white:
+    '#FFFFFF',
+
+  mapBackground:
+    '#EEF3F2',
+
 };
+
+
+/*
+|--------------------------------------------------------------------------
+| TYPES
+|--------------------------------------------------------------------------
+*/
+
+type Coordinates = {
+
+  lat: number;
+
+  lng: number;
+
+};
+
+
+type QuickPlaceType =
+  | 'home'
+  | 'work'
+  | 'recent';
 
 
 /*
@@ -72,255 +136,643 @@ const COLORS = {
 
 export default function HomeScreen() {
 
-  /*
-  |--------------------------------------------------------------------------
-  | ROUTER
-  |--------------------------------------------------------------------------
-  */
-
-  const router = useRouter();
+  const router =
+    useRouter();
 
 
   /*
   |--------------------------------------------------------------------------
-  | LOCATION PARAMETERS
+  | ROUTE PARAMETERS
   |--------------------------------------------------------------------------
   |
-  | The location-picker screen will eventually send the selected locations
-  | back here through Expo Router parameters.
+  | These are returned by location-picker.tsx.
   |
   */
 
-  const params = useLocalSearchParams<{
-    pickupName?: string;
-    pickupAddress?: string;
+  const params =
+    useLocalSearchParams<{
 
-    pickupLat?: string;
-    pickupLng?: string;
+      pickupName?: string;
 
-    dropName?: string;
-    dropAddress?: string;
+      pickupAddress?: string;
 
-    dropLat?: string;
-    dropLng?: string;
-  }>();
+      pickupLat?: string;
+
+      pickupLng?: string;
+
+
+      dropName?: string;
+
+      dropAddress?: string;
+
+      dropLat?: string;
+
+      dropLng?: string;
+
+    }>();
 
 
   /*
   |--------------------------------------------------------------------------
-  | PICKUP LOCATION
+  | MAP LOADING
   |--------------------------------------------------------------------------
-  |
-  | Opens the location selection flow in PICKUP mode.
-  |
   */
-const openPickupLocation = useCallback(() => {
-  router.push({
-    pathname: '/location-picker',
-    params: {
-      type: 'pickup',
-    },
-  });
-}, [router]);
-  
+
+  const [
+    mapLoaded,
+    setMapLoaded,
+  ] = useState(false);
+
 
   /*
   |--------------------------------------------------------------------------
-  | DESTINATION LOCATION
+  | VALID PICKUP COORDINATES
+  |--------------------------------------------------------------------------
+  */
+
+  const pickupCoordinates =
+    useMemo<Coordinates | null>(() => {
+
+      const lat =
+        Number(
+          params.pickupLat,
+        );
+
+
+      const lng =
+        Number(
+          params.pickupLng,
+        );
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | Reject invalid coordinates.
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+
+        !Number.isFinite(lat) ||
+
+        !Number.isFinite(lng)
+
+      ) {
+
+        return null;
+
+      }
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | Reject impossible coordinates.
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+
+        lat < -90 ||
+
+        lat > 90 ||
+
+        lng < -180 ||
+
+        lng > 180
+
+      ) {
+
+        return null;
+
+      }
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | 0,0 IS NOT A REAL RIDEX LOCATION
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+
+        lat === 0 &&
+
+        lng === 0
+
+      ) {
+
+        return null;
+
+      }
+
+
+      return {
+
+        lat,
+
+        lng,
+
+      };
+
+    }, [
+
+      params.pickupLat,
+
+      params.pickupLng,
+
+    ]);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | VALID DESTINATION COORDINATES
+  |--------------------------------------------------------------------------
+  */
+
+  const dropCoordinates =
+    useMemo<Coordinates | null>(() => {
+
+      const lat =
+        Number(
+          params.dropLat,
+        );
+
+
+      const lng =
+        Number(
+          params.dropLng,
+        );
+
+
+      if (
+
+        !Number.isFinite(lat) ||
+
+        !Number.isFinite(lng)
+
+      ) {
+
+        return null;
+
+      }
+
+
+      if (
+
+        lat < -90 ||
+
+        lat > 90 ||
+
+        lng < -180 ||
+
+        lng > 180
+
+      ) {
+
+        return null;
+
+      }
+
+
+      if (
+
+        lat === 0 &&
+
+        lng === 0
+
+      ) {
+
+        return null;
+
+      }
+
+
+      return {
+
+        lat,
+
+        lng,
+
+      };
+
+    }, [
+
+      params.dropLat,
+
+      params.dropLng,
+
+    ]);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOCATION STATUS
+  |--------------------------------------------------------------------------
+  */
+
+  const hasPickup =
+    Boolean(
+      pickupCoordinates,
+    );
+
+
+  const hasDestination =
+    Boolean(
+      dropCoordinates,
+    );
+
+
+  const hasCompleteTrip =
+    hasPickup &&
+    hasDestination;
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | MAP CENTER
   |--------------------------------------------------------------------------
   |
-  | Opens the location selection flow in DROP mode.
-  |
-  | If pickup was already selected, we pass it along so the picker
-  | doesn't lose the user's previous selection.
+  | Kanchikacherla is used as the development fallback because this is
+  | currently the RIDEX pilot area.
   |
   */
 
-  const openDestinationLocation = useCallback(() => {
+  const mapCenter =
+    pickupCoordinates ||
 
-    router.push({
-      pathname: '/location-picker',
+    dropCoordinates ||
 
-      params: {
-        type: 'drop',
+    {
 
-        pickupName:
-          params.pickupName ||
-          'Current location',
+      lat:
+        16.5062,
 
-        pickupAddress:
-          params.pickupAddress ||
-          '',
+      lng:
+        80.6480,
 
-        pickupLat:
-          params.pickupLat ||
-          '',
+    };
 
-        pickupLng:
-          params.pickupLng ||
-          '',
+
+  /*
+  |--------------------------------------------------------------------------
+  | MAP ZOOM
+  |--------------------------------------------------------------------------
+  */
+
+  const mapZoom =
+    hasCompleteTrip
+
+      ? 13
+
+      : 14;
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | OPEN PICKUP
+  |--------------------------------------------------------------------------
+  */
+
+  const openPickupLocation =
+    useCallback(() => {
+
+      router.push({
+
+        pathname:
+          '/location-picker',
+
+        params: {
+
+          type:
+            'pickup',
+
+        },
+
+      });
+
+    }, [
+
+      router,
+
+    ]);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | OPEN DESTINATION
+  |--------------------------------------------------------------------------
+  |
+  | If pickup already exists, pass it to the picker.
+  |
+  */
+
+  const openDestinationLocation =
+    useCallback(() => {
+
+      router.push({
+
+        pathname:
+          '/location-picker',
+
+        params: {
+
+          type:
+            'drop',
+
+
+          pickupName:
+            params.pickupName ||
+            '',
+
+
+          pickupAddress:
+            params.pickupAddress ||
+            '',
+
+
+          pickupLat:
+            params.pickupLat ||
+            '',
+
+
+          pickupLng:
+            params.pickupLng ||
+            '',
+
+        },
+
+      });
+
+    }, [
+
+      router,
+
+      params.pickupName,
+
+      params.pickupAddress,
+
+      params.pickupLat,
+
+      params.pickupLng,
+
+    ]);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | REVIEW TRIP
+  |--------------------------------------------------------------------------
+  |
+  | Once both locations exist, open the new Trip Details screen.
+  |
+  */
+
+  const openTripDetails =
+    useCallback(() => {
+
+      if (
+        !hasCompleteTrip
+      ) {
+
+        /*
+        | If destination isn't selected, start destination flow.
+        */
+
+        openDestinationLocation();
+
+        return;
+
+      }
+
+
+      router.push({
+
+        pathname:
+          '/trip-details',
+
+        params: {
+
+          pickupName:
+            params.pickupName ||
+            'Current location',
+
+          pickupAddress:
+            params.pickupAddress ||
+            '',
+
+          pickupLat:
+            params.pickupLat ||
+            '',
+
+          pickupLng:
+            params.pickupLng ||
+            '',
+
+
+          dropName:
+            params.dropName ||
+            'Destination',
+
+          dropAddress:
+            params.dropAddress ||
+            '',
+
+          dropLat:
+            params.dropLat ||
+            '',
+
+          dropLng:
+            params.dropLng ||
+            '',
+
+        },
+
+      });
+
+    }, [
+
+      router,
+
+      hasCompleteTrip,
+
+      openDestinationLocation,
+
+      params.pickupName,
+
+      params.pickupAddress,
+
+      params.pickupLat,
+
+      params.pickupLng,
+
+      params.dropName,
+
+      params.dropAddress,
+
+      params.dropLat,
+
+      params.dropLng,
+
+    ]);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | CHANGE PICKUP
+  |--------------------------------------------------------------------------
+  */
+
+  const changePickup =
+    useCallback(() => {
+
+      openPickupLocation();
+
+    }, [
+
+      openPickupLocation,
+
+    ]);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | CHANGE DESTINATION
+  |--------------------------------------------------------------------------
+  */
+
+  const changeDestination =
+    useCallback(() => {
+
+      openDestinationLocation();
+
+    }, [
+
+      openDestinationLocation,
+
+    ]);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | CURRENT LOCATION
+  |--------------------------------------------------------------------------
+  |
+  | The actual current-location functionality already lives in the
+  | location picker. Home simply opens pickup selection.
+  |
+  */
+
+  const handleLocate =
+    useCallback(() => {
+
+      openPickupLocation();
+
+    }, [
+
+      openPickupLocation,
+
+    ]);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | QUICK PLACES
+  |--------------------------------------------------------------------------
+  */
+
+  const handleQuickPlace =
+    useCallback(
+      (
+        type: QuickPlaceType,
+      ) => {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Home / Work
+        |--------------------------------------------------------------------------
+        |
+        | Until saved places are implemented, open destination picker.
+        |
+        */
+
+        if (
+
+          type === 'home' ||
+
+          type === 'work'
+
+        ) {
+
+          openDestinationLocation();
+
+          return;
+
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Recent
+        |--------------------------------------------------------------------------
+        |
+        | Recent rides screen will be connected later.
+        |
+        */
+
+        if (
+          type === 'recent'
+        ) {
+
+          return;
+
+        }
+
       },
-    });
 
-  }, [
-    router,
-    params.pickupName,
-    params.pickupAddress,
-    params.pickupLat,
-    params.pickupLng,
-  ]);
+      [
+
+        openDestinationLocation,
+
+      ],
+    );
 
 
   /*
   |--------------------------------------------------------------------------
   | NOTIFICATIONS
   |--------------------------------------------------------------------------
-  |
-  | Placeholder for future notification screen.
-  |
   */
 
-  const handleNotifications = useCallback(() => {
+  const handleNotifications =
+    useCallback(() => {
 
-    // TODO:
-    // Navigate to notifications screen later.
+      /*
+      | Future:
+      |
+      | router.push('/notifications');
+      |
+      */
 
-  }, []);
+    }, []);
 
 
   /*
   |--------------------------------------------------------------------------
   | MENU
   |--------------------------------------------------------------------------
-  |
-  | Placeholder for future side menu.
-  |
   */
 
-  const handleMenu = useCallback(() => {
+  const handleMenu =
+    useCallback(() => {
 
-    // TODO:
-    // Open side menu later.
+      /*
+      | Future:
+      |
+      | router.push('/menu');
+      |
+      */
 
-  }, []);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | CURRENT LOCATION BUTTON
-  |--------------------------------------------------------------------------
-  |
-  | Real GPS functionality will be connected later.
-  |
-  */
-
-  const handleLocate = useCallback(() => {
-
-    // TODO:
-    // Connect expo-location / map provider here.
-
-  }, []);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | MANAGE QUICK PLACES
-  |--------------------------------------------------------------------------
-  */
-
-  const handleManagePlaces = useCallback(() => {
-
-    // TODO:
-    // Navigate to saved places screen.
-
-  }, []);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | QUICK PLACE
-  |--------------------------------------------------------------------------
-  |
-  | Home / Work / Recent.
-  |
-  */
-
-  const handleQuickPlace = useCallback(
-    (type: 'home' | 'work' | 'recent') => {
-
-      if (type === 'home') {
-
-        // Home address will eventually be stored.
-        openDestinationLocation();
-
-        return;
-      }
-
-
-      if (type === 'work') {
-
-        // Work address will eventually be stored.
-        openDestinationLocation();
-
-        return;
-      }
-
-
-      if (type === 'recent') {
-
-        // TODO:
-        // Open recent locations.
-
-        return;
-      }
-
-    },
-    [openDestinationLocation],
-  );
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | BOOK RIDE
-  |--------------------------------------------------------------------------
-  |
-  | We don't start the actual booking yet.
-  |
-  | Once pickup + destination are selected, this will become:
-  |
-  | Home
-  |   ↓
-  | Fare / vehicle selection
-  |   ↓
-  | Offer price
-  |   ↓
-  | Find rider
-  |
-  */
-
-  const handleBookRide = useCallback(() => {
-
-    /*
-     * Don't allow booking until destination exists.
-     */
-
-    if (!params.dropName) {
-
-      openDestinationLocation();
-
-      return;
-    }
-
-
-    /*
-     * TODO:
-     * Navigate to ride selection / pricing screen.
-     */
-
-  }, [
-    params.dropName,
-    openDestinationLocation,
-  ]);
+    }, []);
 
 
   /*
@@ -329,135 +781,177 @@ const openPickupLocation = useCallback(() => {
   |--------------------------------------------------------------------------
   */
 
-  const handleBottomNavigation = useCallback(
-    (screen: string) => {
+  const handleBottomNavigation =
+    useCallback(
+      (
+        screen: string,
+      ) => {
 
-      switch (screen) {
+        switch (
+          screen
+        ) {
 
-        case 'home':
+          case 'home':
 
-          // Already on Home.
-          break;
-
-
-        case 'rides':
-
-          // TODO:
-          // router.push('/rides');
-
-          break;
+            break;
 
 
-        case 'payments':
+          case 'rides':
 
-          // TODO:
-          // router.push('/payments');
+            /*
+            | Future:
+            | router.push('/rides');
+            */
 
-          break;
-
-
-        case 'profile':
-
-          // TODO:
-          // router.push('/profile');
-
-          break;
-
-      }
-
-    },
-    [],
-  );
+            break;
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | DISPLAY VALUES
-  |--------------------------------------------------------------------------
-  */
+          case 'payments':
 
-  const pickupDisplay =
-    params.pickupName ||
-    'Current location';
+            /*
+            | Future:
+            | router.push('/payments');
+            */
+
+            break;
 
 
-  const destinationDisplay =
-    params.dropName ||
-    'Enter your destination';
+          case 'profile':
+
+            /*
+            | Future:
+            | router.push('/profile');
+            */
+
+            break;
+
+        }
+
+      },
+
+      [],
+    );
 
 
   /*
   |--------------------------------------------------------------------------
-  | UI
+  | SCREEN
   |--------------------------------------------------------------------------
   */
 
   return (
 
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={
+        styles.safeArea
+      }
+    >
 
-      <View style={styles.screen}>
+      <View
+        style={
+          styles.screen
+        }
+      >
 
 
         {/* ================================================================
             HEADER
         ================================================================= */}
 
-        <View style={styles.header}>
+        <View
+          style={
+            styles.header
+          }
+        >
 
-          <View style={styles.headerTextContainer}>
+          <View
+            style={
+              styles.headerText
+            }
+          >
 
-            <Text style={styles.greeting}>
+            <Text
+              style={
+                styles.greeting
+              }
+            >
               Good morning 👋
             </Text>
 
-            <Text style={styles.headerSubtitle}>
+
+            <Text
+              style={
+                styles.headerSubtitle
+              }
+            >
               Where are you going today?
             </Text>
 
           </View>
 
 
-          {/* HEADER ACTIONS */}
+          <View
+            style={
+              styles.headerActions
+            }
+          >
 
-          <View style={styles.headerActions}>
-
-            {/* Notifications */}
+            {/* NOTIFICATIONS */}
 
             <Pressable
-              style={styles.headerButton}
-              onPress={handleNotifications}
-              accessibilityRole="button"
-              accessibilityLabel="Notifications"
+              style={
+                styles.headerButton
+              }
+
+              onPress={
+                handleNotifications
+              }
+
+              hitSlop={
+                8
+              }
             >
 
               <Ionicons
                 name="notifications-outline"
-                size={27}
-                color={COLORS.black}
+                size={25}
+                color={
+                  COLORS.black
+                }
               />
 
 
-              {/* Notification dot */}
-
-              <View style={styles.notificationDot} />
+              <View
+                style={
+                  styles.notificationDot
+                }
+              />
 
             </Pressable>
 
 
-            {/* Menu */}
+            {/* MENU */}
 
             <Pressable
-              style={styles.headerButton}
-              onPress={handleMenu}
-              accessibilityRole="button"
-              accessibilityLabel="Menu"
+              style={
+                styles.headerButton
+              }
+
+              onPress={
+                handleMenu
+              }
+
+              hitSlop={
+                8
+              }
             >
 
               <Ionicons
                 name="menu-outline"
-                size={31}
-                color={COLORS.black}
+                size={30}
+                color={
+                  COLORS.black
+                }
               />
 
             </Pressable>
@@ -468,390 +962,831 @@ const openPickupLocation = useCallback(() => {
 
 
         {/* ================================================================
-            PICKUP + DESTINATION CARD
+            MAIN SCROLL
         ================================================================= */}
 
-        <View style={styles.bookingCard}>
+        <ScrollView
+
+          showsVerticalScrollIndicator={
+            false
+          }
+
+          contentContainerStyle={
+            styles.scrollContent
+          }
+
+        >
 
 
-          {/* --------------------------------------------------------------
-              PICKUP
-          -------------------------------------------------------------- */}
+          {/* ================================================================
+              LOCATION CARD
+          ================================================================= */}
 
-          <Pressable
-            style={styles.locationRow}
-            onPress={openPickupLocation}
-            accessibilityRole="button"
-            accessibilityLabel="Choose pickup location"
+          <View
+            style={
+              styles.bookingCard
+            }
           >
 
-            {/* Green pickup marker */}
+            {/* PICKUP */}
 
-            <View
-              style={[
-                styles.locationMarker,
-                styles.pickupMarker,
-              ]}
+            <Pressable
+              style={
+                styles.locationRow
+              }
+
+              onPress={
+                changePickup
+              }
             >
 
-              <View style={styles.markerCenter} />
-
-            </View>
-
-
-            {/* Pickup text */}
-
-            <View style={styles.locationContent}>
-
-              <Text style={styles.pickupLabel}>
-                Pickup location
-              </Text>
-
-              <Text
-                style={styles.locationValue}
-                numberOfLines={1}
-              >
-                {pickupDisplay}
-              </Text>
-
-            </View>
-
-
-            {/* Arrow */}
-
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color="#8A919B"
-            />
-
-          </Pressable>
-
-
-          {/* --------------------------------------------------------------
-              DIVIDER
-          -------------------------------------------------------------- */}
-
-          <View style={styles.locationDivider} />
-
-
-          {/* --------------------------------------------------------------
-              DESTINATION
-          -------------------------------------------------------------- */}
-
-          <Pressable
-            style={styles.locationRow}
-            onPress={openDestinationLocation}
-            accessibilityRole="button"
-            accessibilityLabel="Choose destination"
-          >
-
-            {/* Red destination marker */}
-
-            <View
-              style={[
-                styles.locationMarker,
-                styles.dropMarker,
-              ]}
-            >
-
-              <View style={styles.markerCenter} />
-
-            </View>
-
-
-            {/* Destination text */}
-
-            <View style={styles.locationContent}>
-
-              <Text style={styles.dropLabel}>
-                Where are you going?
-              </Text>
-
-              <Text
+              <View
                 style={[
-                  styles.destinationText,
-                  params.dropName &&
-                    styles.destinationSelected,
+                  styles.locationMarker,
+
+                  styles.pickupMarker,
                 ]}
-                numberOfLines={1}
               >
-                {destinationDisplay}
-              </Text>
 
-            </View>
+                <View
+                  style={
+                    styles.markerCenter
+                  }
+                />
+
+              </View>
 
 
-            {/* Search button */}
+              <View
+                style={
+                  styles.locationContent
+                }
+              >
 
-            <View style={styles.searchButton}>
+                <Text
+                  style={
+                    styles.pickupLabel
+                  }
+                >
+                  Pickup
+                </Text>
+
+
+                <Text
+                  style={
+                    styles.locationName
+                  }
+
+                  numberOfLines={
+                    1
+                  }
+                >
+                  {params.pickupName ||
+                    'Current location'}
+                </Text>
+
+
+                {params.pickupAddress && (
+
+                  <Text
+                    style={
+                      styles.locationAddress
+                    }
+
+                    numberOfLines={
+                      1
+                    }
+                  >
+                    {params.pickupAddress}
+                  </Text>
+
+                )}
+
+              </View>
+
 
               <Ionicons
-                name="search"
-                size={21}
-                color={COLORS.white}
+                name="chevron-forward"
+                size={20}
+                color={
+                  COLORS.muted
+                }
+              />
+
+            </Pressable>
+
+
+            {/* CONNECTOR */}
+
+            <View
+              style={
+                styles.locationConnector
+              }
+            />
+
+
+            {/* DESTINATION */}
+
+            <Pressable
+              style={
+                styles.locationRow
+              }
+
+              onPress={
+                changeDestination
+              }
+            >
+
+              <View
+                style={[
+                  styles.locationMarker,
+
+                  styles.dropMarker,
+                ]}
+              >
+
+                <View
+                  style={
+                    styles.markerCenter
+                  }
+                />
+
+              </View>
+
+
+              <View
+                style={
+                  styles.locationContent
+                }
+              >
+
+                <Text
+                  style={
+                    styles.dropLabel
+                  }
+                >
+                  Destination
+                </Text>
+
+
+                <Text
+                  style={[
+                    styles.locationName,
+
+                    !params.dropName &&
+                      styles.placeholderText,
+
+                  ]}
+
+                  numberOfLines={
+                    1
+                  }
+                >
+                  {params.dropName ||
+                    'Where are you going?'}
+                </Text>
+
+
+                {params.dropAddress && (
+
+                  <Text
+                    style={
+                      styles.locationAddress
+                    }
+
+                    numberOfLines={
+                      1
+                    }
+                  >
+                    {params.dropAddress}
+                  </Text>
+
+                )}
+
+              </View>
+
+
+              <View
+                style={
+                  styles.destinationSearch
+                }
+              >
+
+                <Ionicons
+                  name={
+                    params.dropName
+                      ? 'chevron-forward'
+                      : 'search'
+                  }
+
+                  size={
+                    params.dropName
+                      ? 20
+                      : 20
+                  }
+
+                  color={
+                    params.dropName
+                      ? COLORS.muted
+                      : COLORS.white
+                  }
+
+                />
+
+              </View>
+
+            </Pressable>
+
+          </View>
+
+
+          {/* ================================================================
+              MAP
+          ================================================================= */}
+
+          <View
+            style={
+              styles.mapContainer
+            }
+          >
+
+            {GOOGLE_API_KEY ? (
+
+              <APIProvider
+                apiKey={
+                  GOOGLE_API_KEY
+                }
+              >
+
+                <Map
+
+                  defaultCenter={
+                    mapCenter
+                  }
+
+                  defaultZoom={
+                    mapZoom
+                  }
+
+                  gestureHandling="greedy"
+
+                  disableDefaultUI={
+                    true
+                  }
+
+                  clickableIcons={
+                    false
+                  }
+
+                  mapId="DEMO_MAP_ID"
+
+                  onIdle={() =>
+                    setMapLoaded(
+                      true,
+                    )
+                  }
+
+                >
+
+                  {/* PICKUP */}
+
+                  {pickupCoordinates && (
+
+                    <AdvancedMarker
+                      position={
+                        pickupCoordinates
+                      }
+                    >
+
+                      <View
+                        style={
+                          styles.mapPickup
+                        }
+                      >
+
+                        <View
+                          style={
+                            styles.mapPickupDot
+                          }
+                        />
+
+                      </View>
+
+                    </AdvancedMarker>
+
+                  )}
+
+
+                  {/* DESTINATION */}
+
+                  {dropCoordinates && (
+
+                    <AdvancedMarker
+                      position={
+                        dropCoordinates
+                      }
+                    >
+
+                      <View
+                        style={
+                          styles.mapDrop
+                        }
+                      >
+
+                        <Ionicons
+                          name="location"
+                          size={36}
+                          color={
+                            COLORS.red
+                          }
+                        />
+
+                      </View>
+
+                    </AdvancedMarker>
+
+                  )}
+
+                </Map>
+
+              </APIProvider>
+
+            ) : (
+
+              <View
+                style={
+                  styles.mapFallback
+                }
+              >
+
+                <Ionicons
+                  name="map-outline"
+                  size={40}
+                  color={
+                    COLORS.green
+                  }
+                />
+
+
+                <Text
+                  style={
+                    styles.mapFallbackTitle
+                  }
+                >
+                  Map unavailable
+                </Text>
+
+
+                <Text
+                  style={
+                    styles.mapFallbackText
+                  }
+                >
+                  Google Maps API key is missing.
+                </Text>
+
+              </View>
+
+            )}
+
+
+            {/* MAP LOADING */}
+
+            {!mapLoaded &&
+              GOOGLE_API_KEY && (
+
+              <View
+                style={
+                  styles.mapLoading
+                }
+              >
+
+                <ActivityIndicator
+                  size="small"
+                  color={
+                    COLORS.green
+                  }
+                />
+
+              </View>
+
+            )}
+
+
+            {/* LOCATE BUTTON */}
+
+            <Pressable
+              style={
+                styles.locateButton
+              }
+
+              onPress={
+                handleLocate
+              }
+
+              hitSlop={
+                8
+              }
+            >
+
+              <Ionicons
+                name="locate-outline"
+                size={25}
+                color={
+                  COLORS.black
+                }
+              />
+
+            </Pressable>
+
+
+            {/* MAP LABEL */}
+
+            {!hasCompleteTrip && (
+
+              <View
+                style={
+                  styles.mapHint
+                }
+              >
+
+                <Ionicons
+                  name="navigate-outline"
+                  size={16}
+                  color={
+                    COLORS.green
+                  }
+                />
+
+
+                <Text
+                  style={
+                    styles.mapHintText
+                  }
+                >
+                  Choose a destination to plan your ride
+                </Text>
+
+              </View>
+
+            )}
+
+          </View>
+
+
+          {/* ================================================================
+              QUICK PLACES
+          ================================================================= */}
+
+          <View
+            style={
+              styles.sectionHeader
+            }
+          >
+
+            <Text
+              style={
+                styles.sectionTitle
+              }
+            >
+              Quick places
+            </Text>
+
+
+            <Pressable
+              hitSlop={
+                8
+              }
+            >
+
+              <Text
+                style={
+                  styles.manageText
+                }
+              >
+                Manage
+              </Text>
+
+            </Pressable>
+
+          </View>
+
+
+          <View
+            style={
+              styles.quickPlaces
+            }
+          >
+
+            {/* HOME */}
+
+            <QuickPlace
+
+              icon="home-outline"
+
+              title="Home"
+
+              subtitle="Add address"
+
+              onPress={() =>
+                handleQuickPlace(
+                  'home',
+                )
+              }
+
+            />
+
+
+            {/* WORK */}
+
+            <QuickPlace
+
+              icon="briefcase-outline"
+
+              title="Work"
+
+              subtitle="Add address"
+
+              onPress={() =>
+                handleQuickPlace(
+                  'work',
+                )
+              }
+
+            />
+
+
+            {/* RECENT */}
+
+            <QuickPlace
+
+              icon="time-outline"
+
+              title="Recent"
+
+              subtitle="View places"
+
+              onPress={() =>
+                handleQuickPlace(
+                  'recent',
+                )
+              }
+
+            />
+
+          </View>
+
+
+          {/* ================================================================
+              RIDEX VALUE BANNER
+          ================================================================= */}
+
+          <View
+            style={
+              styles.valueBanner
+            }
+          >
+
+            <View
+              style={
+                styles.valueIcon
+              }
+            >
+
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={27}
+                color={
+                  COLORS.green
+                }
               />
 
             </View>
 
-          </Pressable>
 
-        </View>
+            <View
+              style={
+                styles.valueContent
+              }
+            >
 
-
-        {/* ================================================================
-            MAP
-        ================================================================= */}
-
-        <View style={styles.map}>
-
-
-          {/* Decorative roads */}
-
-          <View style={styles.mapRoadOne} />
-
-          <View style={styles.mapRoadTwo} />
-
-          <View style={styles.mapRoadThree} />
-
-          <View style={styles.mapRoadFour} />
+              <Text
+                style={
+                  styles.valueTitle
+                }
+              >
+                You set the price.
+              </Text>
 
 
-          {/* Map label */}
-
-          <Text style={styles.mapLabel}>
-            Your location
-          </Text>
-
-
-          {/* Current location indicator */}
-
-          <View style={styles.currentLocation}>
-
-            <View style={styles.locationPulse}>
-
-              <View style={styles.locationBlueDot} />
+              <Text
+                style={
+                  styles.valueSubtitle
+                }
+              >
+                Offer your fare and choose the best rider.
+              </Text>
 
             </View>
 
-          </View>
-
-
-          {/* Locate button */}
-
-          <Pressable
-            style={styles.locateButton}
-            onPress={handleLocate}
-            accessibilityRole="button"
-            accessibilityLabel="Use current location"
-          >
-
-            <Ionicons
-              name="locate-outline"
-              size={25}
-              color={COLORS.black}
-            />
-
-          </Pressable>
-
-        </View>
-
-
-        {/* ================================================================
-            QUICK PLACES HEADER
-        ================================================================= */}
-
-        <View style={styles.sectionHeader}>
-
-          <Text style={styles.sectionTitle}>
-            Quick places
-          </Text>
-
-
-          <Pressable
-            onPress={handleManagePlaces}
-            accessibilityRole="button"
-          >
-
-            <Text style={styles.manageText}>
-              Manage
-            </Text>
-
-          </Pressable>
-
-        </View>
-
-
-        {/* ================================================================
-            QUICK PLACES
-        ================================================================= */}
-
-        <View style={styles.quickPlacesRow}>
-
-
-          {/* HOME */}
-
-          <QuickPlace
-            icon="home-outline"
-            title="Home"
-            subtitle="Add address"
-            onPress={() => handleQuickPlace('home')}
-          />
-
-
-          {/* WORK */}
-
-          <QuickPlace
-            icon="briefcase-outline"
-            title="Work"
-            subtitle="Add address"
-            onPress={() => handleQuickPlace('work')}
-          />
-
-
-          {/* RECENT */}
-
-          <QuickPlace
-            icon="time-outline"
-            title="Recent"
-            subtitle="View places"
-            onPress={() => handleQuickPlace('recent')}
-          />
-
-        </View>
-
-
-        {/* ================================================================
-            PRICE / BOOKING CARD
-        ================================================================= */}
-
-        <Pressable
-          style={styles.priceCard}
-          onPress={handleBookRide}
-          accessibilityRole="button"
-          accessibilityLabel="Start booking a ride"
-        >
-
-
-          {/* Icon */}
-
-          <View style={styles.priceIcon}>
-
-            <Ionicons
-              name="pricetag-outline"
-              size={25}
-              color={COLORS.green}
-            />
-
-          </View>
-
-
-          {/* Text */}
-
-          <View style={styles.priceContent}>
-
-            <Text style={styles.priceTitle}>
-              You set the price.
-            </Text>
-
-            <Text style={styles.priceSubtitle}>
-              Choose a ride that works for you.
-            </Text>
-
-          </View>
-
-
-          {/* Arrow */}
-
-          <View style={styles.priceArrow}>
 
             <Ionicons
               name="arrow-forward"
-              size={21}
-              color={COLORS.white}
+              size={23}
+              color={
+                COLORS.black
+              }
             />
 
           </View>
 
-        </Pressable>
+
+          {/* ================================================================
+              REVIEW / BOOK BUTTON
+          ================================================================= */}
+
+          <Pressable
+            style={[
+              styles.bookButton,
+
+              !hasCompleteTrip &&
+                styles.bookButtonInactive,
+
+            ]}
+
+            onPress={
+              openTripDetails
+            }
+          >
+
+            <Text
+              style={
+                styles.bookButtonText
+              }
+            >
+              {hasCompleteTrip
+
+                ? 'Review Trip'
+
+                : 'Book a Ride'
+
+              }
+            </Text>
+
+
+            <Ionicons
+              name="arrow-forward"
+              size={24}
+              color={
+                COLORS.white
+              }
+            />
+
+          </Pressable>
+
+
+          {/* ================================================================
+              SMALL TRUST MESSAGE
+          ================================================================= */}
+
+          <View
+            style={
+              styles.trustRow
+            }
+          >
+
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={16}
+              color={
+                COLORS.green
+              }
+            />
+
+
+            <Text
+              style={
+                styles.trustText
+              }
+            >
+              Safe rides • Transparent pricing
+            </Text>
+
+          </View>
+
+
+        </ScrollView>
 
 
         {/* ================================================================
             BOTTOM NAVIGATION
         ================================================================= */}
 
-        <View style={styles.bottomNav}>
-
-
-          {/* HOME */}
+        <View
+          style={
+            styles.bottomNav
+          }
+        >
 
           <BottomItem
+
             icon="home"
+
             label="Home"
+
             active
+
             onPress={() =>
-              handleBottomNavigation('home')
+              handleBottomNavigation(
+                'home',
+              )
             }
+
           />
 
 
-          {/* RIDES */}
-
           <BottomItem
+
             icon="time-outline"
+
             label="Rides"
+
             onPress={() =>
-              handleBottomNavigation('rides')
+              handleBottomNavigation(
+                'rides',
+              )
             }
+
           />
 
 
           {/* BOOK RIDE CENTER BUTTON */}
 
-          <View style={styles.bookContainer}>
+          <View
+            style={
+              styles.bookContainer
+            }
+          >
 
             <Pressable
-              style={styles.bookButton}
-              onPress={handleBookRide}
-              accessibilityRole="button"
-              accessibilityLabel="Book ride"
+              style={
+                styles.bookCircle
+              }
+
+              onPress={
+                openTripDetails
+              }
             >
 
               <Ionicons
                 name="bicycle"
                 size={29}
-                color={COLORS.white}
+                color={
+                  COLORS.white
+                }
               />
 
             </Pressable>
 
 
-            <Text style={styles.bookLabel}>
+            <Text
+              style={
+                styles.bookLabel
+              }
+            >
               Book Ride
             </Text>
 
           </View>
 
 
-          {/* PAYMENTS */}
-
           <BottomItem
+
             icon="wallet-outline"
+
             label="Payments"
+
             onPress={() =>
-              handleBottomNavigation('payments')
+              handleBottomNavigation(
+                'payments',
+              )
             }
+
           />
 
 
-          {/* PROFILE */}
-
           <BottomItem
+
             icon="person-outline"
+
             label="Profile"
+
             onPress={() =>
-              handleBottomNavigation('profile')
+              handleBottomNavigation(
+                'profile',
+              )
             }
+
           />
 
         </View>
@@ -861,6 +1796,7 @@ const openPickupLocation = useCallback(() => {
     </SafeAreaView>
 
   );
+
 }
 
 
@@ -871,47 +1807,83 @@ const openPickupLocation = useCallback(() => {
 */
 
 function QuickPlace({
+
   icon,
+
   title,
+
   subtitle,
+
   onPress,
+
 }: {
+
   icon: any;
+
   title: string;
+
   subtitle: string;
+
   onPress: () => void;
+
 }) {
 
   return (
 
     <Pressable
-      style={styles.quickPlace}
-      onPress={onPress}
-      accessibilityRole="button"
+
+      style={
+        styles.quickPlace
+      }
+
+      onPress={
+        onPress
+      }
+
     >
 
-      {/* Icon */}
-
-      <View style={styles.quickIcon}>
+      <View
+        style={
+          styles.quickIcon
+        }
+      >
 
         <Ionicons
-          name={icon}
-          size={21}
-          color={COLORS.green}
+          name={
+            icon
+          }
+
+          size={22}
+
+          color={
+            COLORS.green
+          }
+
         />
 
       </View>
 
 
-      {/* Text */}
+      <View
+        style={
+          styles.quickContent
+        }
+      >
 
-      <View style={styles.quickText}>
-
-        <Text style={styles.quickTitle}>
+        <Text
+          style={
+            styles.quickTitle
+          }
+        >
           {title}
         </Text>
 
-        <Text style={styles.quickSubtitle}>
+
+        <Text
+          style={
+            styles.quickSubtitle
+          }
+        >
           {subtitle}
         </Text>
 
@@ -920,43 +1892,68 @@ function QuickPlace({
     </Pressable>
 
   );
+
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| BOTTOM NAVIGATION ITEM
+| BOTTOM NAV ITEM
 |--------------------------------------------------------------------------
 */
 
 function BottomItem({
+
   icon,
+
   label,
+
   active = false,
+
   onPress,
+
 }: {
+
   icon: any;
+
   label: string;
+
   active?: boolean;
+
   onPress: () => void;
+
 }) {
 
   return (
 
     <Pressable
-      style={styles.bottomItem}
-      onPress={onPress}
-      accessibilityRole="button"
+
+      style={
+        styles.bottomItem
+      }
+
+      onPress={
+        onPress
+      }
+
     >
 
       <Ionicons
-        name={icon}
+
+        name={
+          icon
+        }
+
         size={24}
+
         color={
           active
+
             ? COLORS.green
+
             : '#777D84'
         }
+
       />
 
 
@@ -966,23 +1963,27 @@ function BottomItem({
 
           active &&
             styles.bottomLabelActive,
+
         ]}
       >
         {label}
       </Text>
 
 
-      {/* Active underline */}
-
       {active && (
 
-        <View style={styles.bottomIndicator} />
+        <View
+          style={
+            styles.bottomIndicator
+          }
+        />
 
       )}
 
     </Pressable>
 
   );
+
 }
 
 
@@ -992,731 +1993,1132 @@ function BottomItem({
 |--------------------------------------------------------------------------
 */
 
-const styles = StyleSheet.create({
+const styles =
+  StyleSheet.create({
 
-  /*
-  |--------------------------------------------------------------------------
-  | SCREEN
-  |--------------------------------------------------------------------------
-  */
+    /*
+    |--------------------------------------------------------------------------
+    | SCREEN
+    |--------------------------------------------------------------------------
+    */
 
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-  },
+    safeArea: {
 
-  screen: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-    paddingHorizontal: 20,
-  },
+      flex: 1,
 
+      backgroundColor:
+        COLORS.white,
 
-  /*
-  |--------------------------------------------------------------------------
-  | HEADER
-  |--------------------------------------------------------------------------
-  */
-
-  header: {
-    height: 68,
-
-    flexDirection: 'row',
-
-    alignItems: 'center',
-
-    justifyContent: 'space-between',
-  },
-
-  headerTextContainer: {
-    flex: 1,
-  },
-
-  greeting: {
-    fontSize: 23,
-
-    fontWeight: '800',
-
-    color: COLORS.black,
-
-    letterSpacing: -0.4,
-  },
-
-  headerSubtitle: {
-    marginTop: 3,
-
-    fontSize: 14,
-
-    color: COLORS.gray,
-  },
-
-  headerActions: {
-    flexDirection: 'row',
-
-    alignItems: 'center',
-  },
-
-  headerButton: {
-    width: 42,
-
-    height: 42,
-
-    alignItems: 'center',
-
-    justifyContent: 'center',
-
-    marginLeft: 5,
-  },
-
-  notificationDot: {
-    position: 'absolute',
-
-    top: 5,
-
-    right: 6,
-
-    width: 9,
-
-    height: 9,
-
-    borderRadius: 5,
-
-    backgroundColor: COLORS.green,
-
-    borderWidth: 1.5,
-
-    borderColor: COLORS.white,
-  },
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | BOOKING CARD
-  |--------------------------------------------------------------------------
-  */
-
-  bookingCard: {
-    backgroundColor: COLORS.white,
-
-    borderRadius: 20,
-
-    paddingHorizontal: 17,
-
-    paddingVertical: 14,
-
-    shadowColor: '#000',
-
-    shadowOpacity: 0.09,
-
-    shadowRadius: 16,
-
-    shadowOffset: {
-      width: 0,
-      height: 5,
     },
 
-    elevation: 5,
 
-    zIndex: 10,
-  },
+    screen: {
 
-  locationRow: {
-    minHeight: 49,
+      flex: 1,
 
-    flexDirection: 'row',
+      backgroundColor:
+        COLORS.white,
 
-    alignItems: 'center',
-  },
-
-  locationMarker: {
-    width: 27,
-
-    height: 27,
-
-    borderRadius: 14,
-
-    alignItems: 'center',
-
-    justifyContent: 'center',
-  },
-
-  pickupMarker: {
-    backgroundColor: COLORS.green,
-  },
-
-  dropMarker: {
-    backgroundColor: COLORS.red,
-  },
-
-  markerCenter: {
-    width: 8,
-
-    height: 8,
-
-    borderRadius: 4,
-
-    backgroundColor: COLORS.white,
-  },
-
-  locationContent: {
-    flex: 1,
-
-    marginLeft: 15,
-
-    marginRight: 10,
-  },
-
-  pickupLabel: {
-    fontSize: 13,
-
-    color: COLORS.green,
-
-    fontWeight: '600',
-  },
-
-  locationValue: {
-    marginTop: 2,
-
-    fontSize: 16,
-
-    color: COLORS.black,
-
-    fontWeight: '700',
-  },
-
-  dropLabel: {
-    fontSize: 13,
-
-    color: '#747B84',
-  },
-
-  destinationText: {
-    marginTop: 2,
-
-    fontSize: 16,
-
-    color: '#606871',
-
-    fontWeight: '600',
-  },
-
-  destinationSelected: {
-    color: COLORS.black,
-
-    fontWeight: '700',
-  },
-
-  locationDivider: {
-    height: 1,
-
-    backgroundColor: COLORS.border,
-
-    marginLeft: 42,
-
-    marginVertical: 8,
-  },
-
-  searchButton: {
-    width: 44,
-
-    height: 44,
-
-    borderRadius: 14,
-
-    backgroundColor: COLORS.green,
-
-    alignItems: 'center',
-
-    justifyContent: 'center',
-  },
+    },
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | MAP
-  |--------------------------------------------------------------------------
-  */
+    scrollContent: {
 
-  map: {
-    height: 235,
+      paddingHorizontal: 18,
 
-    marginHorizontal: -20,
+      paddingBottom: 110,
 
-    marginTop: -2,
+    },
 
-    backgroundColor: COLORS.mapBackground,
 
-    overflow: 'hidden',
+    /*
+    |--------------------------------------------------------------------------
+    | HEADER
+    |--------------------------------------------------------------------------
+    */
 
-    position: 'relative',
-  },
+    header: {
 
-  mapRoadOne: {
-    position: 'absolute',
+      height: 78,
 
-    width: 520,
+      paddingHorizontal: 20,
 
-    height: 45,
+      flexDirection:
+        'row',
 
-    backgroundColor: COLORS.mapRoadWhite,
+      alignItems:
+        'center',
 
-    transform: [
-      {
-        rotate: '-24deg',
+      justifyContent:
+        'space-between',
+
+      backgroundColor:
+        COLORS.white,
+
+    },
+
+
+    headerText: {
+
+      flex: 1,
+
+    },
+
+
+    greeting: {
+
+      fontSize: 23,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+      letterSpacing:
+        -0.4,
+
+    },
+
+
+    headerSubtitle: {
+
+      marginTop: 4,
+
+      fontSize: 14,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    headerActions: {
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+    },
+
+
+    headerButton: {
+
+      width: 42,
+
+      height: 42,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+      marginLeft: 4,
+
+    },
+
+
+    notificationDot: {
+
+      position:
+        'absolute',
+
+      right: 6,
+
+      top: 5,
+
+      width: 9,
+
+      height: 9,
+
+      borderRadius: 5,
+
+      backgroundColor:
+        COLORS.green,
+
+      borderWidth: 1.5,
+
+      borderColor:
+        COLORS.white,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | BOOKING CARD
+    |--------------------------------------------------------------------------
+    */
+
+    bookingCard: {
+
+      backgroundColor:
+        COLORS.white,
+
+      borderRadius: 23,
+
+      paddingHorizontal: 16,
+
+      paddingVertical: 12,
+
+      shadowColor:
+        '#000',
+
+      shadowOpacity:
+        0.09,
+
+      shadowRadius:
+        15,
+
+      shadowOffset: {
+
+        width: 0,
+
+        height: 5,
+
       },
-    ],
 
-    left: -130,
+      elevation: 5,
 
-    top: 55,
-  },
+      zIndex: 10,
 
-  mapRoadTwo: {
-    position: 'absolute',
+    },
 
-    width: 550,
 
-    height: 28,
+    locationRow: {
 
-    backgroundColor: COLORS.mapRoad,
+      minHeight: 65,
 
-    transform: [
-      {
-        rotate: '25deg',
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+    },
+
+
+    locationMarker: {
+
+      width: 30,
+
+      height: 30,
+
+      borderRadius: 15,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    pickupMarker: {
+
+      backgroundColor:
+        COLORS.green,
+
+    },
+
+
+    dropMarker: {
+
+      backgroundColor:
+        COLORS.red,
+
+    },
+
+
+    markerCenter: {
+
+      width: 9,
+
+      height: 9,
+
+      borderRadius: 5,
+
+      backgroundColor:
+        COLORS.white,
+
+    },
+
+
+    locationContent: {
+
+      flex: 1,
+
+      marginLeft: 13,
+
+      marginRight: 8,
+
+    },
+
+
+    pickupLabel: {
+
+      fontSize: 13,
+
+      fontWeight:
+        '700',
+
+      color:
+        COLORS.green,
+
+    },
+
+
+    dropLabel: {
+
+      fontSize: 13,
+
+      fontWeight:
+        '700',
+
+      color:
+        COLORS.red,
+
+    },
+
+
+    locationName: {
+
+      marginTop: 3,
+
+      fontSize: 16,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    placeholderText: {
+
+      color:
+        COLORS.muted,
+
+      fontWeight:
+        '600',
+
+    },
+
+
+    locationAddress: {
+
+      marginTop: 2,
+
+      fontSize: 12,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    locationConnector: {
+
+      height: 20,
+
+      width: 2,
+
+      marginLeft: 14,
+
+      backgroundColor:
+        '#E2E6E8',
+
+    },
+
+
+    destinationSearch: {
+
+      width: 43,
+
+      height: 43,
+
+      borderRadius: 14,
+
+      backgroundColor:
+        COLORS.green,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | MAP
+    |--------------------------------------------------------------------------
+    */
+
+    mapContainer: {
+
+      height: 255,
+
+      marginTop: 13,
+
+      borderRadius: 23,
+
+      overflow:
+        'hidden',
+
+      backgroundColor:
+        COLORS.mapBackground,
+
+      position:
+        'relative',
+
+    },
+
+
+    mapLoading: {
+
+      position:
+        'absolute',
+
+      top: 15,
+
+      left: 15,
+
+      width: 38,
+
+      height: 38,
+
+      borderRadius: 19,
+
+      backgroundColor:
+        COLORS.white,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+      shadowColor:
+        '#000',
+
+      shadowOpacity:
+        0.1,
+
+      shadowRadius:
+        6,
+
+      elevation: 3,
+
+    },
+
+
+    mapPickup: {
+
+      width: 32,
+
+      height: 32,
+
+      borderRadius: 16,
+
+      backgroundColor:
+        COLORS.white,
+
+      borderWidth: 3,
+
+      borderColor:
+        COLORS.green,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    mapPickupDot: {
+
+      width: 11,
+
+      height: 11,
+
+      borderRadius: 6,
+
+      backgroundColor:
+        COLORS.green,
+
+    },
+
+
+    mapDrop: {
+
+      width: 42,
+
+      height: 42,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    locateButton: {
+
+      position:
+        'absolute',
+
+      right: 14,
+
+      bottom: 14,
+
+      width: 49,
+
+      height: 49,
+
+      borderRadius: 16,
+
+      backgroundColor:
+        COLORS.white,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+      shadowColor:
+        '#000',
+
+      shadowOpacity:
+        0.12,
+
+      shadowRadius:
+        8,
+
+      shadowOffset: {
+
+        width: 0,
+
+        height: 3,
+
       },
-    ],
 
-    left: -90,
+      elevation: 5,
 
-    top: 125,
-  },
+    },
 
-  mapRoadThree: {
-    position: 'absolute',
 
-    width: 500,
+    mapHint: {
 
-    height: 25,
+      position:
+        'absolute',
 
-    backgroundColor: COLORS.mapRoadWhite,
+      top: 14,
 
-    transform: [
-      {
-        rotate: '43deg',
+      left: 14,
+
+      right: 75,
+
+      minHeight: 39,
+
+      borderRadius: 20,
+
+      paddingHorizontal: 13,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      backgroundColor:
+        COLORS.white,
+
+      shadowColor:
+        '#000',
+
+      shadowOpacity:
+        0.08,
+
+      shadowRadius:
+        7,
+
+      elevation: 3,
+
+    },
+
+
+    mapHintText: {
+
+      flex: 1,
+
+      marginLeft: 7,
+
+      fontSize: 12,
+
+      fontWeight:
+        '600',
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    mapFallback: {
+
+      flex: 1,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    mapFallbackTitle: {
+
+      marginTop: 8,
+
+      fontSize: 16,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    mapFallbackText: {
+
+      marginTop: 3,
+
+      fontSize: 12,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | QUICK PLACES
+    |--------------------------------------------------------------------------
+    */
+
+    sectionHeader: {
+
+      marginTop: 18,
+
+      marginBottom: 10,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'space-between',
+
+    },
+
+
+    sectionTitle: {
+
+      fontSize: 18,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    manageText: {
+
+      fontSize: 13,
+
+      fontWeight:
+        '700',
+
+      color:
+        COLORS.green,
+
+    },
+
+
+    quickPlaces: {
+
+      flexDirection:
+        'row',
+
+      gap: 9,
+
+    },
+
+
+    quickPlace: {
+
+      flex: 1,
+
+      minHeight: 85,
+
+      borderRadius: 18,
+
+      borderWidth: 1,
+
+      borderColor:
+        COLORS.border,
+
+      backgroundColor:
+        COLORS.white,
+
+      padding: 11,
+
+    },
+
+
+    quickIcon: {
+
+      width: 38,
+
+      height: 38,
+
+      borderRadius: 19,
+
+      backgroundColor:
+        COLORS.greenSoft,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    quickContent: {
+
+      marginTop: 7,
+
+    },
+
+
+    quickTitle: {
+
+      fontSize: 13,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    quickSubtitle: {
+
+      marginTop: 2,
+
+      fontSize: 11,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | VALUE BANNER
+    |--------------------------------------------------------------------------
+    */
+
+    valueBanner: {
+
+      minHeight: 90,
+
+      marginTop: 17,
+
+      borderRadius: 21,
+
+      paddingHorizontal: 14,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      backgroundColor:
+        '#F0FAF4',
+
+    },
+
+
+    valueIcon: {
+
+      width: 50,
+
+      height: 50,
+
+      borderRadius: 25,
+
+      backgroundColor:
+        '#E0F4E8',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    valueContent: {
+
+      flex: 1,
+
+      marginLeft: 12,
+
+      marginRight: 8,
+
+    },
+
+
+    valueTitle: {
+
+      fontSize: 15,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    valueSubtitle: {
+
+      marginTop: 4,
+
+      fontSize: 12,
+
+      lineHeight: 17,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | MAIN BOOK BUTTON
+    |--------------------------------------------------------------------------
+    */
+
+    bookButton: {
+
+      minHeight: 58,
+
+      marginTop: 13,
+
+      borderRadius: 18,
+
+      paddingHorizontal: 20,
+
+      backgroundColor:
+        COLORS.green,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    bookButtonInactive: {
+
+      backgroundColor:
+        COLORS.green,
+
+    },
+
+
+    bookButtonText: {
+
+      flex: 1,
+
+      textAlign:
+        'center',
+
+      fontSize: 16,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.white,
+
+      marginLeft: 22,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | TRUST
+    |--------------------------------------------------------------------------
+    */
+
+    trustRow: {
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+      paddingVertical: 8,
+
+    },
+
+
+    trustText: {
+
+      marginLeft: 6,
+
+      fontSize: 11.5,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | BOTTOM NAV
+    |--------------------------------------------------------------------------
+    */
+
+    bottomNav: {
+
+      position:
+        'absolute',
+
+      left: 10,
+
+      right: 10,
+
+      bottom: 7,
+
+      height: 70,
+
+      borderRadius: 22,
+
+      backgroundColor:
+        COLORS.white,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'space-around',
+
+      shadowColor:
+        '#000',
+
+      shadowOpacity:
+        0.1,
+
+      shadowRadius:
+        15,
+
+      shadowOffset: {
+
+        width: 0,
+
+        height: -3,
+
       },
-    ],
 
-    right: -150,
+      elevation: 9,
 
-    top: 40,
-  },
+    },
 
-  mapRoadFour: {
-    position: 'absolute',
 
-    width: 450,
+    bottomItem: {
 
-    height: 18,
+      width: 62,
 
-    backgroundColor: COLORS.mapRoad,
+      height: 60,
 
-    transform: [
-      {
-        rotate: '-12deg',
-      },
-    ],
+      alignItems:
+        'center',
 
-    right: -100,
+      justifyContent:
+        'center',
 
-    bottom: 45,
-  },
+      position:
+        'relative',
 
-  mapLabel: {
-    position: 'absolute',
+    },
 
-    left: 25,
 
-    top: 25,
+    bottomLabel: {
 
-    fontSize: 13,
+      marginTop: 3,
 
-    color: '#687681',
+      fontSize: 10.5,
 
-    fontWeight: '500',
-  },
+      color:
+        '#777D84',
 
-  currentLocation: {
-    position: 'absolute',
+    },
 
-    left: '50%',
 
-    top: '52%',
+    bottomLabelActive: {
 
-    marginLeft: -27,
+      color:
+        COLORS.green,
 
-    marginTop: -27,
-  },
+      fontWeight:
+        '700',
 
-  locationPulse: {
-    width: 54,
+    },
 
-    height: 54,
 
-    borderRadius: 27,
+    bottomIndicator: {
 
-    backgroundColor: 'rgba(20,130,230,0.13)',
+      position:
+        'absolute',
 
-    alignItems: 'center',
+      bottom: 0,
 
-    justifyContent: 'center',
-  },
+      width: 23,
 
-  locationBlueDot: {
-    width: 19,
-
-    height: 19,
-
-    borderRadius: 10,
-
-    backgroundColor: COLORS.blue,
-
-    borderWidth: 3,
-
-    borderColor: COLORS.white,
-  },
-
-  locateButton: {
-    position: 'absolute',
-
-    left: 20,
-
-    bottom: 15,
-
-    width: 48,
-
-    height: 48,
-
-    borderRadius: 14,
-
-    backgroundColor: COLORS.white,
-
-    alignItems: 'center',
-
-    justifyContent: 'center',
-
-    shadowColor: '#000',
-
-    shadowOpacity: 0.1,
-
-    shadowRadius: 8,
-
-    shadowOffset: {
-      width: 0,
       height: 3,
+
+      borderRadius: 2,
+
+      backgroundColor:
+        COLORS.green,
+
     },
 
-    elevation: 4,
-  },
 
+    /*
+    |--------------------------------------------------------------------------
+    | CENTER BOOK BUTTON
+    |--------------------------------------------------------------------------
+    */
 
-  /*
-  |--------------------------------------------------------------------------
-  | QUICK PLACES
-  |--------------------------------------------------------------------------
-  */
+    bookContainer: {
 
-  sectionHeader: {
-    flexDirection: 'row',
+      width: 78,
 
-    alignItems: 'center',
+      alignItems:
+        'center',
 
-    justifyContent: 'space-between',
+      marginTop: -27,
 
-    marginTop: 13,
-
-    marginBottom: 9,
-  },
-
-  sectionTitle: {
-    fontSize: 18,
-
-    fontWeight: '800',
-
-    color: COLORS.black,
-  },
-
-  manageText: {
-    fontSize: 13,
-
-    fontWeight: '700',
-
-    color: COLORS.green,
-  },
-
-  quickPlacesRow: {
-    flexDirection: 'row',
-
-    gap: 9,
-  },
-
-  quickPlace: {
-    flex: 1,
-
-    height: 58,
-
-    borderRadius: 15,
-
-    borderWidth: 1,
-
-    borderColor: COLORS.border,
-
-    backgroundColor: COLORS.white,
-
-    flexDirection: 'row',
-
-    alignItems: 'center',
-
-    paddingHorizontal: 9,
-  },
-
-  quickIcon: {
-    width: 36,
-
-    height: 36,
-
-    borderRadius: 18,
-
-    backgroundColor: COLORS.greenLight,
-
-    alignItems: 'center',
-
-    justifyContent: 'center',
-
-    marginRight: 7,
-  },
-
-  quickText: {
-    flex: 1,
-  },
-
-  quickTitle: {
-    fontSize: 13,
-
-    fontWeight: '700',
-
-    color: COLORS.black,
-  },
-
-  quickSubtitle: {
-    marginTop: 1,
-
-    fontSize: 10,
-
-    color: '#858C95',
-  },
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | PRICE CARD
-  |--------------------------------------------------------------------------
-  */
-
-  priceCard: {
-    height: 82,
-
-    marginTop: 13,
-
-    borderRadius: 18,
-
-    backgroundColor: COLORS.greenLight,
-
-    flexDirection: 'row',
-
-    alignItems: 'center',
-
-    paddingHorizontal: 13,
-  },
-
-  priceIcon: {
-    width: 50,
-
-    height: 50,
-
-    borderRadius: 25,
-
-    backgroundColor: COLORS.white,
-
-    alignItems: 'center',
-
-    justifyContent: 'center',
-  },
-
-  priceContent: {
-    flex: 1,
-
-    marginLeft: 12,
-  },
-
-  priceTitle: {
-    fontSize: 15,
-
-    fontWeight: '800',
-
-    color: COLORS.black,
-  },
-
-  priceSubtitle: {
-    marginTop: 3,
-
-    fontSize: 11.5,
-
-    color: '#687681',
-  },
-
-  priceArrow: {
-    width: 42,
-
-    height: 42,
-
-    borderRadius: 21,
-
-    backgroundColor: COLORS.green,
-
-    alignItems: 'center',
-
-    justifyContent: 'center',
-  },
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | BOTTOM NAVIGATION
-  |--------------------------------------------------------------------------
-  */
-
-  bottomNav: {
-    position: 'absolute',
-
-    left: 0,
-
-    right: 0,
-
-    bottom: 7,
-
-    height: 72,
-
-    backgroundColor: COLORS.white,
-
-    borderRadius: 21,
-
-    flexDirection: 'row',
-
-    alignItems: 'center',
-
-    justifyContent: 'space-around',
-
-    shadowColor: '#000',
-
-    shadowOpacity: 0.09,
-
-    shadowRadius: 14,
-
-    shadowOffset: {
-      width: 0,
-      height: -3,
     },
 
-    elevation: 8,
-  },
 
-  bottomItem: {
-    width: 62,
+    bookCircle: {
 
-    height: 62,
+      width: 61,
 
-    alignItems: 'center',
+      height: 61,
 
-    justifyContent: 'center',
+      borderRadius: 31,
 
-    position: 'relative',
-  },
+      backgroundColor:
+        COLORS.green,
 
-  bottomLabel: {
-    marginTop: 3,
+      borderWidth: 4,
 
-    fontSize: 10.5,
+      borderColor:
+        COLORS.white,
 
-    color: '#777D84',
-  },
+      alignItems:
+        'center',
 
-  bottomLabelActive: {
-    color: COLORS.green,
+      justifyContent:
+        'center',
 
-    fontWeight: '700',
-  },
+      shadowColor:
+        COLORS.green,
 
-  bottomIndicator: {
-    position: 'absolute',
+      shadowOpacity:
+        0.25,
 
-    bottom: 1,
+      shadowRadius:
+        8,
 
-    width: 24,
+      shadowOffset: {
 
-    height: 3,
+        width: 0,
 
-    borderRadius: 2,
+        height: 4,
 
-    backgroundColor: COLORS.green,
-  },
+      },
 
-  bookContainer: {
-    width: 78,
+      elevation: 7,
 
-    alignItems: 'center',
-
-    marginTop: -28,
-  },
-
-  bookButton: {
-    width: 60,
-
-    height: 60,
-
-    borderRadius: 30,
-
-    backgroundColor: COLORS.green,
-
-    borderWidth: 4,
-
-    borderColor: COLORS.white,
-
-    alignItems: 'center',
-
-    justifyContent: 'center',
-
-    shadowColor: COLORS.green,
-
-    shadowOpacity: 0.25,
-
-    shadowRadius: 8,
-
-    shadowOffset: {
-      width: 0,
-      height: 4,
     },
 
-    elevation: 7,
-  },
 
-  bookLabel: {
-    marginTop: 2,
+    bookLabel: {
 
-    fontSize: 10.5,
+      marginTop: 2,
 
-    color: COLORS.black,
+      fontSize: 10.5,
 
-    fontWeight: '600',
-  },
+      fontWeight:
+        '700',
 
-});
+      color:
+        COLORS.black,
+
+    },
+
+  });

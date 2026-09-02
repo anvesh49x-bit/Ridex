@@ -1,7 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, {
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   Pressable,
   SafeAreaView,
@@ -25,14 +30,23 @@ import { Ionicons } from '@expo/vector-icons';
 |--------------------------------------------------------------------------
 */
 
-type LocationType = 'pickup' | 'drop';
+type LocationType =
+  | 'pickup'
+  | 'drop';
+
 
 type LocationResult = {
+
   id: string;
+
   name: string;
+
   address: string;
+
   latitude: number;
+
   longitude: number;
+
 };
 
 
@@ -43,16 +57,23 @@ type LocationResult = {
 */
 
 const COLORS = {
+
   green: '#079A4B',
+
   greenLight: '#EAF8F1',
 
+  red: '#EF3154',
+
   black: '#111820',
+
   gray: '#737C88',
+
   lightGray: '#A0A6AD',
 
   border: '#E5E8EB',
 
   white: '#FFFFFF',
+
 };
 
 
@@ -74,24 +95,30 @@ const GOOGLE_API_KEY =
 
 export default function LocationPicker() {
 
-  const router = useRouter();
+  const router =
+    useRouter();
 
 
   /*
   |--------------------------------------------------------------------------
-  | ROUTE PARAMETERS
+  | PARAMETERS
   |--------------------------------------------------------------------------
   */
 
-  const params = useLocalSearchParams<{
-    type?: string;
+  const params =
+    useLocalSearchParams<{
 
-    pickupName?: string;
-    pickupAddress?: string;
+      type?: string;
 
-    pickupLat?: string;
-    pickupLng?: string;
-  }>();
+      pickupName?: string;
+
+      pickupAddress?: string;
+
+      pickupLat?: string;
+
+      pickupLng?: string;
+
+    }>();
 
 
   /*
@@ -100,11 +127,18 @@ export default function LocationPicker() {
   |--------------------------------------------------------------------------
   */
 
-  const [locationType, setLocationType] =
+  const [
+    locationType,
+    setLocationType,
+  ] =
     useState<LocationType>(
+
       params.type === 'drop'
+
         ? 'drop'
+
         : 'pickup',
+
     );
 
 
@@ -114,224 +148,267 @@ export default function LocationPicker() {
   |--------------------------------------------------------------------------
   */
 
-  const [query, setQuery] =
+  const [
+    query,
+    setQuery,
+  ] =
     useState('');
 
-  const [results, setResults] =
+
+  const [
+    results,
+    setResults,
+  ] =
     useState<LocationResult[]>([]);
 
-  const [selected, setSelected] =
-    useState<LocationResult | null>(null);
 
-  const [loading, setLoading] =
+  const [
+    selected,
+    setSelected,
+  ] =
+    useState<LocationResult | null>(
+      null,
+    );
+
+
+  const [
+    loading,
+    setLoading,
+  ] =
     useState(false);
 
-  const [searched, setSearched] =
+
+  const [
+    searched,
+    setSearched,
+  ] =
     useState(false);
 
 
   const searchTimer =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
+    useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
 
 
   /*
   |--------------------------------------------------------------------------
-  | SEARCH GOOGLE PLACES
-  |--------------------------------------------------------------------------
-  |
-  | Step 1:
-  | Ask Google for matching place predictions.
-  |
-  | Step 2:
-  | When the user taps a prediction,
-  | request the exact place details.
-  |
+  | GOOGLE PLACES AUTOCOMPLETE
   |--------------------------------------------------------------------------
   */
 
-  const searchLocations = async (
-    text: string,
-  ) => {
+  const searchLocations =
+    async (
+      text: string,
+    ) => {
 
-    const cleanText =
-      text.trim();
-
-
-    if (cleanText.length < 2) {
-
-      setResults([]);
-      setSearched(false);
-
-      return;
-    }
+      const cleanText =
+        text.trim();
 
 
-    if (!GOOGLE_API_KEY) {
+      if (
+        cleanText.length < 2
+      ) {
 
-      console.error(
-        'Missing EXPO_PUBLIC_GOOGLE_PLACES_API_KEY',
-      );
+        setResults([]);
 
-      setResults([]);
+        setSearched(false);
 
-      setSearched(true);
+        return;
 
-      return;
-    }
-
-
-    try {
-
-      setLoading(true);
-      setSearched(true);
-
-
-      /*
-      |--------------------------------------------------------------------------
-      | GOOGLE PLACES AUTOCOMPLETE (NEW)
-      |--------------------------------------------------------------------------
-      */
-
-      const response =
-        await fetch(
-          'https://places.googleapis.com/v1/places:autocomplete',
-          {
-            method: 'POST',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-
-              'X-Goog-Api-Key':
-                GOOGLE_API_KEY,
-
-              'X-Goog-FieldMask':
-                'suggestions.placePrediction.placeId,' +
-                'suggestions.placePrediction.text,' +
-                'suggestions.placePrediction.structuredFormat',
-            },
-
-            body: JSON.stringify({
-
-              input: cleanText,
-
-              includedRegionCodes: ['in'],
-
-              languageCode: 'en',
-
-            }),
-          },
-        );
-
-
-      if (!response.ok) {
-
-        const errorText =
-          await response.text();
-
-        console.error(
-          'Google Places error:',
-          errorText,
-        );
-
-        throw new Error(
-          'Google Places request failed',
-        );
       }
 
 
-      const data =
-        await response.json();
+      if (
+        !GOOGLE_API_KEY
+      ) {
+
+        console.error(
+          'RIDEX: Missing EXPO_PUBLIC_GOOGLE_PLACES_API_KEY',
+        );
+
+        setResults([]);
+
+        setSearched(true);
+
+        return;
+
+      }
 
 
-      const predictions =
-        data.suggestions || [];
+      try {
+
+        setLoading(true);
+
+        setSearched(true);
 
 
-      /*
-      |--------------------------------------------------------------------------
-      | MAP PREDICTIONS INTO OUR UI FORMAT
-      |--------------------------------------------------------------------------
-      */
+        const response =
+          await fetch(
 
-      const mapped:
-        LocationResult[] =
-        predictions
-          .map(
-            (
-              suggestion: any,
-            ) => {
+            'https://places.googleapis.com/v1/places:autocomplete',
 
-              const prediction =
-                suggestion.placePrediction;
+            {
 
+              method: 'POST',
 
-              if (!prediction) {
-                return null;
-              }
+              headers: {
 
+                'Content-Type':
+                  'application/json',
 
-              return {
+                'X-Goog-Api-Key':
+                  GOOGLE_API_KEY,
 
-                id:
-                  prediction.placeId,
+                'X-Goog-FieldMask':
+                  'suggestions.placePrediction.placeId,' +
+                  'suggestions.placePrediction.text,' +
+                  'suggestions.placePrediction.structuredFormat',
 
-                name:
-                  prediction
-                    .structuredFormat
-                    ?.mainText
-                    ?.text ||
-                  prediction
-                    .text
-                    ?.text ||
-                  'Location',
+              },
 
-                address:
-                  prediction
-                    .structuredFormat
-                    ?.secondaryText
-                    ?.text ||
-                  prediction
-                    .text
-                    ?.text ||
-                  '',
+              body:
+                JSON.stringify({
 
-                /*
-                Coordinates are fetched only
-                after the user selects a result.
-                */
+                  input:
+                    cleanText,
 
-                latitude: 0,
+                  includedRegionCodes:
+                    ['in'],
 
-                longitude: 0,
+                  languageCode:
+                    'en',
 
-              };
+                }),
 
             },
-          )
-          .filter(
-            Boolean,
+
           );
 
 
-      setResults(mapped);
+        if (
+          !response.ok
+        ) {
 
-    } catch (error) {
+          const errorText =
+            await response.text();
 
-      console.error(
-        'Location search error:',
-        error,
-      );
 
-      setResults([]);
+          console.error(
+            'RIDEX: Google Places error:',
+            errorText,
+          );
 
-    } finally {
 
-      setLoading(false);
+          throw new Error(
+            'Google Places request failed',
+          );
 
-    }
+        }
 
-  };
+
+        const data =
+          await response.json();
+
+
+        const predictions =
+          data.suggestions || [];
+
+
+        const mapped:
+          LocationResult[] =
+
+          predictions
+
+            .map(
+              (
+                suggestion: any,
+              ) => {
+
+                const prediction =
+                  suggestion.placePrediction;
+
+
+                if (
+                  !prediction
+                ) {
+
+                  return null;
+
+                }
+
+
+                return {
+
+                  id:
+                    prediction.placeId,
+
+                  name:
+                    prediction
+                      .structuredFormat
+                      ?.mainText
+                      ?.text ||
+
+                    prediction
+                      .text
+                      ?.text ||
+
+                    'Location',
+
+                  address:
+                    prediction
+                      .structuredFormat
+                      ?.secondaryText
+                      ?.text ||
+
+                    prediction
+                      .text
+                      ?.text ||
+
+                    '',
+
+                  /*
+                  |----------------------------------------------------------
+                  | Coordinates are retrieved after selection.
+                  |----------------------------------------------------------
+                  */
+
+                  latitude: 0,
+
+                  longitude: 0,
+
+                };
+
+              },
+            )
+
+            .filter(
+              Boolean,
+            );
+
+
+        setResults(
+          mapped,
+        );
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          'RIDEX: Location search error:',
+          error,
+        );
+
+        setResults([]);
+
+      } finally {
+
+        setLoading(false);
+
+      }
+
+    };
 
 
   /*
@@ -342,7 +419,9 @@ export default function LocationPicker() {
 
   useEffect(() => {
 
-    if (searchTimer.current) {
+    if (
+      searchTimer.current
+    ) {
 
       clearTimeout(
         searchTimer.current,
@@ -351,9 +430,12 @@ export default function LocationPicker() {
     }
 
 
-    if (!query.trim()) {
+    if (
+      !query.trim()
+    ) {
 
       setResults([]);
+
       setSearched(false);
 
       return;
@@ -370,13 +452,17 @@ export default function LocationPicker() {
           );
 
         },
+
         350,
+
       );
 
 
     return () => {
 
-      if (searchTimer.current) {
+      if (
+        searchTimer.current
+      ) {
 
         clearTimeout(
           searchTimer.current,
@@ -386,149 +472,204 @@ export default function LocationPicker() {
 
     };
 
-  }, [query]);
+  }, [
+    query,
+  ]);
 
 
   /*
   |--------------------------------------------------------------------------
-  | GET EXACT GOOGLE PLACE DETAILS
+  | GET PLACE DETAILS
   |--------------------------------------------------------------------------
   */
 
-  const getPlaceDetails = async (
-    placeId: string,
-  ): Promise<LocationResult | null> => {
+  const getPlaceDetails =
+    async (
+      placeId: string,
+    ): Promise<LocationResult | null> => {
 
-    if (!GOOGLE_API_KEY) {
-
-      return null;
-
-    }
-
-
-    try {
-
-      const response =
-        await fetch(
-          `https://places.googleapis.com/v1/places/${encodeURIComponent(
-            placeId,
-          )}`,
-          {
-            headers: {
-
-              'X-Goog-Api-Key':
-                GOOGLE_API_KEY,
-
-              'X-Goog-FieldMask':
-                'id,displayName,formattedAddress,location',
-
-            },
-          },
-        );
-
-
-      if (!response.ok) {
-
-        const errorText =
-          await response.text();
-
-        console.error(
-          'Google Place Details error:',
-          errorText,
-        );
+      if (
+        !GOOGLE_API_KEY
+      ) {
 
         return null;
 
       }
 
 
-      const place =
-        await response.json();
+      try {
+
+        const response =
+          await fetch(
+
+            `https://places.googleapis.com/v1/places/${encodeURIComponent(
+              placeId,
+            )}`,
+
+            {
+
+              headers: {
+
+                'X-Goog-Api-Key':
+                  GOOGLE_API_KEY,
+
+                'X-Goog-FieldMask':
+                  'id,displayName,formattedAddress,location',
+
+              },
+
+            },
+
+          );
 
 
-      return {
+        if (
+          !response.ok
+        ) {
 
-        id:
-          place.id ||
-          placeId,
+          const errorText =
+            await response.text();
 
-        name:
-          place.displayName
-            ?.text ||
-          'Location',
 
-        address:
-          place.formattedAddress ||
-          '',
+          console.error(
+            'RIDEX: Place details error:',
+            errorText,
+          );
 
-        latitude:
+
+          return null;
+
+        }
+
+
+        const place =
+          await response.json();
+
+
+        const latitude =
           Number(
-            place.location?.latitude ||
-            0,
-          ),
+            place.location?.latitude,
+          );
 
-        longitude:
+
+        const longitude =
           Number(
-            place.location?.longitude ||
-            0,
-          ),
+            place.location?.longitude,
+          );
 
-      };
 
-    } catch (error) {
+        if (
 
-      console.error(
-        'Place details error:',
-        error,
-      );
+          !Number.isFinite(
+            latitude,
+          ) ||
 
-      return null;
+          !Number.isFinite(
+            longitude,
+          )
 
-    }
+        ) {
 
-  };
+          return null;
+
+        }
+
+
+        return {
+
+          id:
+            place.id ||
+            placeId,
+
+          name:
+            place.displayName
+              ?.text ||
+            'Location',
+
+          address:
+            place.formattedAddress ||
+            '',
+
+          latitude,
+
+          longitude,
+
+        };
+
+      } catch (
+        error
+      ) {
+
+        console.error(
+          'RIDEX: Place details exception:',
+          error,
+        );
+
+        return null;
+
+      }
+
+    };
 
 
   /*
   |--------------------------------------------------------------------------
-  | SELECT LOCATION
+  | SELECT SEARCH RESULT
   |--------------------------------------------------------------------------
   */
 
-  const selectLocation = async (
-    location: LocationResult,
-  ) => {
+  const selectLocation =
+    async (
+      location: LocationResult,
+    ) => {
 
-    Keyboard.dismiss();
+      Keyboard.dismiss();
 
-    setLoading(true);
-
-    const details =
-      await getPlaceDetails(
-        location.id,
-      );
+      setLoading(true);
 
 
-    if (details) {
+      try {
 
-      setSelected(details);
-
-      setQuery(details.name);
-
-    } else {
-
-      setSelected(location);
-
-      setQuery(location.name);
-
-    }
+        const details =
+          await getPlaceDetails(
+            location.id,
+          );
 
 
-    setResults([]);
+        if (
+          details
+        ) {
 
-    setLoading(false);
+          setSelected(
+            details,
+          );
 
-  };
+          setQuery(
+            details.name,
+          );
+
+        } else {
+
+          setSelected(
+            location,
+          );
+
+          setQuery(
+            location.name,
+          );
+
+        }
+
+
+        setResults([]);
+
+      } finally {
+
+        setLoading(false);
+
+      }
+
+    };
 
 
   /*
@@ -536,248 +677,202 @@ export default function LocationPicker() {
   | CURRENT LOCATION
   |--------------------------------------------------------------------------
   */
-const useCurrentLocation = async () => {
-  if (locationType !== 'pickup') {
-    return;
-  }
 
-  try {
-    setLoading(true);
+  const useCurrentLocation =
+    async () => {
 
-    /*
-    |--------------------------------------------------------------------------
-    | Ask browser/device for the real GPS location
-    |--------------------------------------------------------------------------
-    */
+      if (
+        locationType !==
+        'pickup'
+      ) {
 
-    if (
-      typeof navigator === 'undefined' ||
-      !navigator.geolocation
-    ) {
-      throw new Error(
-        'Location services are not available',
-      );
-    }
+        return;
 
-    const position =
-      await new Promise<GeolocationPosition>(
-        (resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(
-            resolve,
-            reject,
-            {
-              enableHighAccuracy: true,
-              timeout: 15000,
-              maximumAge: 30000,
+      }
+
+
+      if (
+        typeof navigator ===
+        'undefined' ||
+
+        !navigator.geolocation
+      ) {
+
+        Alert.alert(
+          'Location unavailable',
+          'Your device location is not available. Please search for your pickup location instead.',
+        );
+
+        return;
+
+      }
+
+
+      try {
+
+        setLoading(true);
+
+
+        const position =
+          await new Promise<GeolocationPosition>(
+            (
+              resolve,
+              reject,
+            ) => {
+
+              navigator.geolocation.getCurrentPosition(
+
+                resolve,
+
+                reject,
+
+                {
+
+                  enableHighAccuracy:
+                    true,
+
+                  timeout:
+                    15000,
+
+                  maximumAge:
+                    30000,
+
+                },
+
+              );
+
             },
           );
-        },
-      );
-
-    const latitude =
-      position.coords.latitude;
-
-    const longitude =
-      position.coords.longitude;
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | Reverse geocode GPS coordinates
-    |--------------------------------------------------------------------------
-    */
-
-    if (!GOOGLE_API_KEY) {
-      throw new Error(
-        'Google API key is missing',
-      );
-    }
-
-    const response = await fetch(
-      `https://geocode.googleapis.com/v4beta/geocode/location?location.latitude=${latitude}&location.longitude=${longitude}`,
-      {
-        headers: {
-          'X-Goog-Api-Key':
-            GOOGLE_API_KEY,
-        },
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        'Unable to find your address',
-      );
-    }
-
-    const data =
-      await response.json();
-
-    const address =
-      data.results?.[0]?.formattedAddress ||
-      'Current location';
+        const latitude =
+          position.coords.latitude;
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | Create selected location
-    |--------------------------------------------------------------------------
-    */
-
-    const currentLocation: LocationResult = {
-      id: 'current-location',
-
-      name: 'Current location',
-
-      address,
-
-      latitude,
-
-      longitude,
-    };
+        const longitude =
+          position.coords.longitude;
 
 
-    setSelected(
-      currentLocation,
-    );
+        /*
+        |--------------------------------------------------------------------------
+        | Reverse geocode
+        |--------------------------------------------------------------------------
+        */
 
-    setQuery(
-      'Current location',
-    );
-
-    setResults([]);
-
-    setSearched(false);
-
-  } catch (error) {
-
-    console.error(
-      'Current location error:',
-      error,
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | If GPS fails, don't silently select a fake location.
-    |--------------------------------------------------------------------------
-    */
-
-    setSelected(null);
-
-    setQuery('');
-
-    setResults([]);
-
-    setSearched(true);
-
-    alert(
-      'Unable to get your current location. Please allow location access and try again.',
-    );
-
-  } finally {
-
-    setLoading(false);
-
-  }
-};
-
-  /*
-  |--------------------------------------------------------------------------
-  | CONTINUE
-  |--------------------------------------------------------------------------
-  */
-
-  const handleContinue = () => {
-
-    if (!selected) {
-
-      return;
-
-    }
+        let address =
+          'Current location';
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | PICKUP
-    |--------------------------------------------------------------------------
-    */
+        if (
+          GOOGLE_API_KEY
+        ) {
 
-    if (
-      locationType ===
-      'pickup'
-    ) {
+          try {
 
-      setLocationType(
-        'drop',
-      );
+            const response =
+              await fetch(
 
-      setQuery('');
+                `https://geocode.googleapis.com/v4beta/geocode/location?location.latitude=${latitude}&location.longitude=${longitude}`,
 
-      setResults([]);
+                {
 
-      setSearched(false);
+                  headers: {
 
-      /*
-      | Keep pickup information.
-      |
-      | It will be passed to Home
-      | when destination is selected.
-      */
+                    'X-Goog-Api-Key':
+                      GOOGLE_API_KEY,
 
-      return;
+                  },
 
-    }
+                },
+
+              );
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | DESTINATION
-    |--------------------------------------------------------------------------
-    */
+            if (
+              response.ok
+            ) {
 
-    router.replace({
+              const data =
+                await response.json();
 
-      pathname:
-        '/home' as any,
 
-      params: {
+              address =
+                data.results?.[0]
+                  ?.formattedAddress ||
 
-        pickupName:
-          params.pickupName ||
+                'Current location';
+
+            }
+
+          } catch (
+            reverseGeocodeError
+          ) {
+
+            console.warn(
+              'RIDEX: Reverse geocoding failed:',
+              reverseGeocodeError,
+            );
+
+          }
+
+        }
+
+
+        const currentLocation:
+          LocationResult = {
+
+            id:
+              'current-location',
+
+            name:
+              'Current location',
+
+            address,
+
+            latitude,
+
+            longitude,
+
+          };
+
+
+        setSelected(
+          currentLocation,
+        );
+
+        setQuery(
           'Current location',
+        );
 
-        pickupAddress:
-          params.pickupAddress ||
-          '',
+        setResults([]);
 
-        pickupLat:
-          params.pickupLat ||
-          '',
+        setSearched(false);
 
-        pickupLng:
-          params.pickupLng ||
-          '',
+      } catch (
+        error
+      ) {
 
-        dropName:
-          selected.name,
+        console.error(
+          'RIDEX: Current location error:',
+          error,
+        );
 
-        dropAddress:
-          selected.address,
 
-        dropLat:
-          String(
-            selected.latitude,
-          ),
+        Alert.alert(
 
-        dropLng:
-          String(
-            selected.longitude,
-          ),
+          'Unable to get location',
 
-      },
+          'Please allow location access or search for your pickup manually.',
 
-    });
+        );
 
-  };
+      } finally {
+
+        setLoading(false);
+
+      }
+
+    };
 
 
   /*
@@ -786,13 +881,175 @@ const useCurrentLocation = async () => {
   |--------------------------------------------------------------------------
   */
 
-  const openMapPicker = () => {
+  const openMapPicker =
+    () => {
 
-    router.push(
-      '/map-picker' as any,
-    );
+      router.push({
 
-  };
+        pathname:
+          '/map-picker',
+
+        params: {
+
+          type:
+            locationType,
+
+          pickupName:
+            params.pickupName ||
+            '',
+
+          pickupAddress:
+            params.pickupAddress ||
+            '',
+
+          pickupLat:
+            params.pickupLat ||
+            '',
+
+          pickupLng:
+            params.pickupLng ||
+            '',
+
+        },
+
+      });
+
+    };
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | CONTINUE
+  |--------------------------------------------------------------------------
+  */
+
+  const handleContinue =
+    () => {
+
+      if (
+        !selected
+      ) {
+
+        return;
+
+      }
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | PICKUP
+      |--------------------------------------------------------------------------
+      |
+      | Keep the picker open and switch to destination.
+      |
+      */
+
+      if (
+        locationType ===
+        'pickup'
+      ) {
+
+        /*
+        | IMPORTANT:
+        |
+        | We do NOT navigate to Home here.
+        |
+        | The selected pickup becomes the parameters
+        | for the destination step.
+        */
+
+        router.replace({
+
+          pathname:
+            '/location-picker',
+
+          params: {
+
+            type:
+              'drop',
+
+            pickupName:
+              selected.name,
+
+            pickupAddress:
+              selected.address,
+
+            pickupLat:
+              String(
+                selected.latitude,
+              ),
+
+            pickupLng:
+              String(
+                selected.longitude,
+              ),
+
+          },
+
+        });
+
+        return;
+
+      }
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | DESTINATION
+      |--------------------------------------------------------------------------
+      |
+      | THIS IS THE IMPORTANT FIX.
+      |
+      | Previously this navigated to /home.
+      |
+      | Now it goes directly to /trip-details.
+      |--------------------------------------------------------------------------
+      */
+
+      router.replace({
+
+        pathname:
+          '/trip-details',
+
+        params: {
+
+          pickupName:
+            params.pickupName ||
+            'Current location',
+
+          pickupAddress:
+            params.pickupAddress ||
+            '',
+
+          pickupLat:
+            params.pickupLat ||
+            '',
+
+          pickupLng:
+            params.pickupLng ||
+            '',
+
+          dropName:
+            selected.name,
+
+          dropAddress:
+            selected.address,
+
+          dropLat:
+            String(
+              selected.latitude,
+            ),
+
+          dropLng:
+            String(
+              selected.longitude,
+            ),
+
+        },
+
+      });
+
+    };
 
 
   /*
@@ -801,33 +1058,46 @@ const useCurrentLocation = async () => {
   |--------------------------------------------------------------------------
   */
 
-  const handleBack = () => {
+  const handleBack =
+    () => {
 
-    if (
-      locationType ===
-        'drop' &&
-      params.type !==
-        'drop'
-    ) {
+      /*
+      |--------------------------------------------------------------------------
+      | If we are on destination selection after choosing pickup,
+      | go back to pickup selection.
+      |--------------------------------------------------------------------------
+      */
 
-      setLocationType(
-        'pickup',
-      );
+      if (
+        locationType ===
+          'drop' &&
 
-      setQuery('');
+        params.type !==
+          'drop'
+      ) {
 
-      setResults([]);
+        router.replace({
 
-      setSelected(null);
+          pathname:
+            '/location-picker',
 
-      return;
+          params: {
 
-    }
+            type:
+              'pickup',
+
+          },
+
+        });
+
+        return;
+
+      }
 
 
-    router.back();
+      router.back();
 
-  };
+    };
 
 
   /*
@@ -837,20 +1107,29 @@ const useCurrentLocation = async () => {
   */
 
   const title =
-    locationType === 'pickup'
+    locationType ===
+      'pickup'
+
       ? 'Choose pickup location'
+
       : 'Where are you going?';
 
 
   const placeholder =
-    locationType === 'pickup'
+    locationType ===
+      'pickup'
+
       ? 'Search pickup location'
+
       : 'Search destination';
 
 
   const buttonText =
-    locationType === 'pickup'
+    locationType ===
+      'pickup'
+
       ? 'Continue to destination'
+
       : 'Confirm destination';
 
 
@@ -863,61 +1142,99 @@ const useCurrentLocation = async () => {
   return (
 
     <SafeAreaView
-      style={styles.safeArea}
+      style={
+        styles.safeArea
+      }
     >
 
       <View
-        style={styles.container}
+        style={
+          styles.container
+        }
       >
 
-        {/* HEADER */}
+
+        {/* ================================================================
+            HEADER
+        ================================================================= */}
 
         <View
-          style={styles.header}
+          style={
+            styles.header
+          }
         >
 
           <Pressable
-            style={styles.backButton}
-            onPress={handleBack}
+
+            style={
+              styles.backButton
+            }
+
+            onPress={
+              handleBack
+            }
+
           >
 
             <Ionicons
+
               name="arrow-back"
+
               size={25}
-              color={COLORS.black}
+
+              color={
+                COLORS.black
+              }
+
             />
 
           </Pressable>
 
 
           <Text
-            style={styles.headerTitle}
+            style={
+              styles.headerTitle
+            }
           >
+
             {title}
+
           </Text>
 
 
           <View
-            style={styles.headerSpacer}
+            style={
+              styles.headerSpacer
+            }
           />
 
         </View>
 
 
-        {/* STEPS */}
+        {/* ================================================================
+            STEPS
+        ================================================================= */}
 
         <View
-          style={styles.steps}
+          style={
+            styles.steps
+          }
         >
 
+          {/* PICKUP */}
+
           <View
-            style={styles.step}
+            style={
+              styles.step
+            }
           >
 
             <View
               style={[
                 styles.stepCircle,
+
                 styles.stepActive,
+
               ]}
             >
 
@@ -935,9 +1252,11 @@ const useCurrentLocation = async () => {
             <Text
               style={[
                 styles.stepText,
+
                 locationType ===
                   'pickup' &&
                   styles.stepTextActive,
+
               ]}
             >
               Pickup
@@ -946,26 +1265,36 @@ const useCurrentLocation = async () => {
           </View>
 
 
+          {/* LINE */}
+
           <View
             style={[
               styles.stepLine,
+
               locationType ===
                 'drop' &&
                 styles.stepLineActive,
+
             ]}
           />
 
 
+          {/* DESTINATION */}
+
           <View
-            style={styles.step}
+            style={
+              styles.step
+            }
           >
 
             <View
               style={[
                 styles.stepCircle,
+
                 locationType ===
                   'drop' &&
                   styles.stepActive,
+
               ]}
             >
 
@@ -973,7 +1302,9 @@ const useCurrentLocation = async () => {
                 style={
                   locationType ===
                     'drop'
+
                     ? styles.stepNumberActive
+
                     : styles.stepNumber
                 }
               >
@@ -986,9 +1317,11 @@ const useCurrentLocation = async () => {
             <Text
               style={[
                 styles.stepText,
+
                 locationType ===
                   'drop' &&
                   styles.stepTextActive,
+
               ]}
             >
               Destination
@@ -999,45 +1332,78 @@ const useCurrentLocation = async () => {
         </View>
 
 
-        {/* SEARCH */}
+        {/* ================================================================
+            SEARCH
+        ================================================================= */}
 
         <View
-          style={styles.searchContainer}
+          style={
+            styles.searchContainer
+          }
         >
 
           <Ionicons
             name="search"
             size={22}
-            color={COLORS.gray}
+            color={
+              COLORS.gray
+            }
           />
 
 
           <TextInput
-            value={query}
-            onChangeText={(text) => {
 
-              setQuery(text);
+            value={
+              query
+            }
 
-              setSelected(null);
+            onChangeText={
+              (text) => {
 
-            }}
+                setQuery(
+                  text,
+                );
+
+                setSelected(
+                  null,
+                );
+
+              }
+            }
+
             placeholder={
               placeholder
             }
+
             placeholderTextColor="#9AA1AA"
-            style={styles.searchInput}
+
+            style={
+              styles.searchInput
+            }
+
             autoFocus
-            autoCorrect={false}
+
+            autoCorrect={
+              false
+            }
+
             autoCapitalize="words"
+
             returnKeyType="search"
+
           />
 
 
           {loading && (
 
             <ActivityIndicator
+
               size="small"
-              color={COLORS.green}
+
+              color={
+                COLORS.green
+              }
+
             />
 
           )}
@@ -1047,23 +1413,33 @@ const useCurrentLocation = async () => {
             query.length > 0 && (
 
             <Pressable
+
               onPress={() => {
 
                 setQuery('');
 
-                setSelected(null);
+                setSelected(
+                  null,
+                );
 
                 setResults([]);
 
-                setSearched(false);
+                setSearched(
+                  false,
+                );
 
               }}
+
             >
 
               <Ionicons
+
                 name="close-circle"
+
                 size={21}
+
                 color="#A5ABB2"
+
               />
 
             </Pressable>
@@ -1073,18 +1449,23 @@ const useCurrentLocation = async () => {
         </View>
 
 
-        {/* CURRENT LOCATION */}
+        {/* ================================================================
+            CURRENT LOCATION
+        ================================================================= */}
 
         {locationType ===
           'pickup' && (
 
           <Pressable
+
             style={
               styles.currentLocation
             }
+
             onPress={
               useCurrentLocation
             }
+
           >
 
             <View
@@ -1094,9 +1475,15 @@ const useCurrentLocation = async () => {
             >
 
               <Ionicons
+
                 name="locate"
+
                 size={22}
-                color={COLORS.green}
+
+                color={
+                  COLORS.green
+                }
+
               />
 
             </View>
@@ -1129,9 +1516,13 @@ const useCurrentLocation = async () => {
 
 
             <Ionicons
+
               name="chevron-forward"
+
               size={20}
+
               color="#9AA1AA"
+
             />
 
           </Pressable>
@@ -1139,39 +1530,62 @@ const useCurrentLocation = async () => {
         )}
 
 
-        {/* CHOOSE ON MAP */}
+        {/* ================================================================
+            CHOOSE ON MAP
+        ================================================================= */}
 
         <Pressable
-          style={styles.mapOption}
-          onPress={openMapPicker}
+
+          style={
+            styles.mapOption
+          }
+
+          onPress={
+            openMapPicker
+          }
+
         >
 
           <View
-            style={styles.mapIcon}
+            style={
+              styles.mapIcon
+            }
           >
 
             <Ionicons
+
               name="map-outline"
+
               size={23}
-              color={COLORS.green}
+
+              color={
+                COLORS.green
+              }
+
             />
 
           </View>
 
 
           <View
-            style={styles.mapText}
+            style={
+              styles.mapText
+            }
           >
 
             <Text
-              style={styles.mapTitle}
+              style={
+                styles.mapTitle
+              }
             >
               Choose on map
             </Text>
 
 
             <Text
-              style={styles.mapSubtitle}
+              style={
+                styles.mapSubtitle
+              }
             >
               Pick an exact location on the map
             </Text>
@@ -1180,50 +1594,82 @@ const useCurrentLocation = async () => {
 
 
           <Ionicons
+
             name="chevron-forward"
+
             size={20}
+
             color="#9AA1AA"
+
           />
 
         </Pressable>
 
 
-        {/* SELECTED LOCATION */}
+        {/* ================================================================
+            SELECTED LOCATION
+        ================================================================= */}
 
         {selected && (
 
           <View
-            style={styles.selectedCard}
+            style={
+              styles.selectedCard
+            }
           >
 
             <View
-              style={styles.selectedIcon}
+              style={
+                styles.selectedIcon
+              }
             >
 
               <Ionicons
+
                 name="location"
+
                 size={21}
-                color={COLORS.green}
+
+                color={
+                  COLORS.green
+                }
+
               />
 
             </View>
 
 
             <View
-              style={styles.selectedContent}
+              style={
+                styles.selectedContent
+              }
             >
 
               <Text
-                style={styles.selectedTitle}
-                numberOfLines={1}
+
+                style={
+                  styles.selectedTitle
+                }
+
+                numberOfLines={
+                  1
+                }
+
               >
                 {selected.name}
               </Text>
 
 
               <Text
-                style={styles.selectedAddress}
-                numberOfLines={2}
+
+                style={
+                  styles.selectedAddress
+                }
+
+                numberOfLines={
+                  2
+                }
+
               >
                 {selected.address}
               </Text>
@@ -1232,9 +1678,15 @@ const useCurrentLocation = async () => {
 
 
             <Ionicons
+
               name="checkmark-circle"
+
               size={25}
-              color={COLORS.green}
+
+              color={
+                COLORS.green
+              }
+
             />
 
           </View>
@@ -1242,50 +1694,73 @@ const useCurrentLocation = async () => {
         )}
 
 
-        {/* SEARCH RESULTS */}
+        {/* ================================================================
+            SEARCH RESULTS
+        ================================================================= */}
 
         {!selected && (
 
           <View
-            style={styles.results}
+            style={
+              styles.results
+            }
           >
 
             {loading && (
+
               <View
-                style={styles.loading}
+                style={
+                  styles.loading
+                }
               >
 
                 <ActivityIndicator
+
                   size="small"
-                  color={COLORS.green}
+
+                  color={
+                    COLORS.green
+                  }
+
                 />
 
+
                 <Text
-                  style={styles.loadingText}
+                  style={
+                    styles.loadingText
+                  }
                 >
-                  Finding nearby places...
+                  Searching locations...
                 </Text>
 
               </View>
+
             )}
 
 
             {!loading &&
+
               results.map(
-                (location) => (
+                (
+                  location,
+                ) => (
 
                   <Pressable
+
                     key={
                       location.id
                     }
+
                     style={
                       styles.result
                     }
+
                     onPress={() =>
                       selectLocation(
                         location,
                       )
                     }
+
                   >
 
                     <View
@@ -1295,9 +1770,15 @@ const useCurrentLocation = async () => {
                     >
 
                       <Ionicons
+
                         name="location-outline"
+
                         size={21}
-                        color={COLORS.green}
+
+                        color={
+                          COLORS.green
+                        }
+
                       />
 
                     </View>
@@ -1310,20 +1791,30 @@ const useCurrentLocation = async () => {
                     >
 
                       <Text
+
                         style={
                           styles.resultName
                         }
-                        numberOfLines={1}
+
+                        numberOfLines={
+                          1
+                        }
+
                       >
                         {location.name}
                       </Text>
 
 
                       <Text
+
                         style={
                           styles.resultAddress
                         }
-                        numberOfLines={2}
+
+                        numberOfLines={
+                          2
+                        }
+
                       >
                         {location.address}
                       </Text>
@@ -1332,9 +1823,13 @@ const useCurrentLocation = async () => {
 
 
                     <Ionicons
+
                       name="chevron-forward"
+
                       size={19}
+
                       color="#A0A6AD"
+
                     />
 
                   </Pressable>
@@ -1344,100 +1839,133 @@ const useCurrentLocation = async () => {
 
 
             {!loading &&
+
               searched &&
+
               results.length ===
                 0 && (
 
+              <View
+                style={
+                  styles.empty
+                }
+              >
+
                 <View
-                  style={styles.empty}
+                  style={
+                    styles.emptyIcon
+                  }
                 >
 
-                  <View
-                    style={
-                      styles.emptyIcon
-                    }
-                  >
+                  <Ionicons
 
-                    <Ionicons
-                      name="search-outline"
-                      size={28}
-                      color="#8A929B"
-                    />
+                    name="search-outline"
 
-                  </View>
+                    size={28}
 
+                    color="#8A929B"
 
-                  <Text
-                    style={
-                      styles.emptyTitle
-                    }
-                  >
-                    No matching locations
-                  </Text>
-
-
-                  <Text
-                    style={
-                      styles.emptyText
-                    }
-                  >
-                    Try a college, landmark,
-                    street or nearby area.
-                  </Text>
+                  />
 
                 </View>
 
-              )}
+
+                <Text
+                  style={
+                    styles.emptyTitle
+                  }
+                >
+                  No matching locations
+                </Text>
+
+
+                <Text
+                  style={
+                    styles.emptyText
+                  }
+                >
+                  Try a college, landmark,
+                  street or nearby area.
+                </Text>
+
+              </View>
+
+            )}
 
           </View>
 
         )}
 
 
-        {/* CONTINUE */}
+        {/* ================================================================
+            CONTINUE BUTTON
+        ================================================================= */}
 
         <View
-          style={styles.bottomArea}
+          style={
+            styles.bottomArea
+          }
         >
 
           <Pressable
+
             style={[
+
               styles.continueButton,
 
               !selected &&
                 styles.continueDisabled,
+
             ]}
-            disabled={!selected}
+
+            disabled={
+              !selected
+            }
+
             onPress={
               handleContinue
             }
+
           >
 
             <Text
               style={[
+
                 styles.continueText,
 
                 !selected &&
                   styles.continueTextDisabled,
+
               ]}
             >
+
               {buttonText}
+
             </Text>
 
 
             <Ionicons
+
               name="arrow-forward"
+
               size={22}
+
               color={
+
                 selected
+
                   ? COLORS.white
+
                   : COLORS.lightGray
+
               }
+
             />
 
           </Pressable>
 
         </View>
+
 
       </View>
 
@@ -1454,495 +1982,808 @@ const useCurrentLocation = async () => {
 |--------------------------------------------------------------------------
 */
 
-const styles = StyleSheet.create({
+const styles =
+  StyleSheet.create({
 
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-  },
+    safeArea: {
 
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-    paddingHorizontal: 20,
-  },
+      flex: 1,
 
+      backgroundColor:
+        COLORS.white,
 
-  header: {
-    height: 62,
+    },
 
-    flexDirection: 'row',
 
-    alignItems: 'center',
+    container: {
 
-    justifyContent: 'space-between',
-  },
+      flex: 1,
 
-  backButton: {
-    width: 42,
-    height: 42,
+      backgroundColor:
+        COLORS.white,
 
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+      paddingHorizontal:
+        20,
 
-  headerTitle: {
-    flex: 1,
+    },
 
-    textAlign: 'center',
 
-    fontSize: 19,
+    /*
+    |--------------------------------------------------------------------------
+    | HEADER
+    |--------------------------------------------------------------------------
+    */
 
-    fontWeight: '800',
+    header: {
 
-    color: COLORS.black,
-  },
+      height: 62,
 
-  headerSpacer: {
-    width: 42,
-  },
+      flexDirection:
+        'row',
 
+      alignItems:
+        'center',
 
-  steps: {
-    height: 50,
+      justifyContent:
+        'space-between',
 
-    flexDirection: 'row',
+    },
 
-    alignItems: 'center',
 
-    justifyContent: 'center',
-  },
+    backButton: {
 
-  step: {
-    flexDirection: 'row',
+      width: 42,
 
-    alignItems: 'center',
-  },
+      height: 42,
 
-  stepCircle: {
-    width: 28,
-    height: 28,
+      alignItems:
+        'center',
 
-    borderRadius: 14,
+      justifyContent:
+        'center',
 
-    borderWidth: 1.5,
+    },
 
-    borderColor: COLORS.border,
 
-    alignItems: 'center',
+    headerTitle: {
 
-    justifyContent: 'center',
-  },
+      flex: 1,
 
-  stepActive: {
-    backgroundColor: COLORS.green,
+      textAlign:
+        'center',
 
-    borderColor: COLORS.green,
-  },
+      fontSize: 19,
 
-  stepNumber: {
-    fontSize: 13,
+      fontWeight:
+        '800',
 
-    fontWeight: '700',
+      color:
+        COLORS.black,
 
-    color: '#858C95',
-  },
+    },
 
-  stepNumberActive: {
-    fontSize: 13,
 
-    fontWeight: '800',
+    headerSpacer: {
 
-    color: COLORS.white,
-  },
+      width: 42,
 
-  stepText: {
-    marginLeft: 7,
+    },
 
-    fontSize: 13,
 
-    color: '#858C95',
+    /*
+    |--------------------------------------------------------------------------
+    | STEPS
+    |--------------------------------------------------------------------------
+    */
 
-    fontWeight: '600',
-  },
+    steps: {
 
-  stepTextActive: {
-    color: COLORS.green,
-  },
+      height: 50,
 
-  stepLine: {
-    width: 45,
+      flexDirection:
+        'row',
 
-    height: 2,
+      alignItems:
+        'center',
 
-    backgroundColor: COLORS.border,
+      justifyContent:
+        'center',
 
-    marginHorizontal: 10,
-  },
+    },
 
-  stepLineActive: {
-    backgroundColor: COLORS.green,
-  },
 
+    step: {
 
-  searchContainer: {
-    height: 58,
+      flexDirection:
+        'row',
 
-    borderWidth: 1.5,
+      alignItems:
+        'center',
 
-    borderColor: COLORS.border,
+    },
 
-    borderRadius: 16,
 
-    flexDirection: 'row',
+    stepCircle: {
 
-    alignItems: 'center',
+      width: 28,
 
-    paddingHorizontal: 16,
+      height: 28,
 
-    marginTop: 8,
-  },
+      borderRadius: 14,
 
-  searchInput: {
-    flex: 1,
+      borderWidth: 1.5,
 
-    marginLeft: 12,
+      borderColor:
+        COLORS.border,
 
-    fontSize: 16,
+      alignItems:
+        'center',
 
-    color: COLORS.black,
+      justifyContent:
+        'center',
 
-    fontWeight: '500',
+    },
 
-    paddingVertical: 0,
-  },
 
+    stepActive: {
 
-  currentLocation: {
-    minHeight: 70,
+      backgroundColor:
+        COLORS.green,
 
-    marginTop: 14,
+      borderColor:
+        COLORS.green,
 
-    borderRadius: 16,
+    },
 
-    backgroundColor: COLORS.greenLight,
 
-    flexDirection: 'row',
+    stepNumber: {
 
-    alignItems: 'center',
+      fontSize: 13,
 
-    paddingHorizontal: 14,
-  },
+      fontWeight:
+        '700',
 
-  currentIcon: {
-    width: 44,
-    height: 44,
+      color:
+        '#858C95',
 
-    borderRadius: 22,
+    },
 
-    backgroundColor: COLORS.white,
 
-    alignItems: 'center',
+    stepNumberActive: {
 
-    justifyContent: 'center',
-  },
+      fontSize: 13,
 
-  currentText: {
-    flex: 1,
+      fontWeight:
+        '800',
 
-    marginLeft: 12,
-  },
+      color:
+        COLORS.white,
 
-  currentTitle: {
-    fontSize: 15,
+    },
 
-    fontWeight: '800',
 
-    color: COLORS.black,
-  },
+    stepText: {
 
-  currentSubtitle: {
-    marginTop: 3,
+      marginLeft: 7,
 
-    fontSize: 12,
+      fontSize: 13,
 
-    color: COLORS.gray,
-  },
+      color:
+        '#858C95',
 
+      fontWeight:
+        '600',
 
-  mapOption: {
-    minHeight: 70,
+    },
 
-    marginTop: 10,
 
-    borderRadius: 16,
+    stepTextActive: {
 
-    borderWidth: 1,
+      color:
+        COLORS.green,
 
-    borderColor: COLORS.border,
+    },
 
-    backgroundColor: COLORS.white,
 
-    flexDirection: 'row',
+    stepLine: {
 
-    alignItems: 'center',
+      width: 45,
 
-    paddingHorizontal: 14,
-  },
+      height: 2,
 
-  mapIcon: {
-    width: 44,
-    height: 44,
+      backgroundColor:
+        COLORS.border,
 
-    borderRadius: 22,
+      marginHorizontal:
+        10,
 
-    backgroundColor: COLORS.greenLight,
+    },
 
-    alignItems: 'center',
 
-    justifyContent: 'center',
-  },
+    stepLineActive: {
 
-  mapText: {
-    flex: 1,
+      backgroundColor:
+        COLORS.green,
 
-    marginLeft: 12,
-  },
+    },
 
-  mapTitle: {
-    fontSize: 15,
 
-    fontWeight: '800',
+    /*
+    |--------------------------------------------------------------------------
+    | SEARCH
+    |--------------------------------------------------------------------------
+    */
 
-    color: COLORS.black,
-  },
+    searchContainer: {
 
-  mapSubtitle: {
-    marginTop: 3,
+      height: 58,
 
-    fontSize: 12,
+      borderWidth: 1.5,
 
-    color: COLORS.gray,
-  },
+      borderColor:
+        COLORS.border,
 
+      borderRadius: 16,
 
-  selectedCard: {
-    marginTop: 14,
+      flexDirection:
+        'row',
 
-    minHeight: 76,
+      alignItems:
+        'center',
 
-    borderRadius: 16,
+      paddingHorizontal:
+        16,
 
-    borderWidth: 1.5,
+      marginTop: 8,
 
-    borderColor: COLORS.green,
+    },
 
-    backgroundColor: COLORS.greenLight,
 
-    flexDirection: 'row',
+    searchInput: {
 
-    alignItems: 'center',
+      flex: 1,
 
-    paddingHorizontal: 14,
-  },
+      marginLeft: 12,
 
-  selectedIcon: {
-    width: 42,
-    height: 42,
+      fontSize: 16,
 
-    borderRadius: 21,
+      color:
+        COLORS.black,
 
-    backgroundColor: COLORS.white,
+      fontWeight:
+        '500',
 
-    alignItems: 'center',
+      paddingVertical:
+        0,
 
-    justifyContent: 'center',
-  },
+    },
 
-  selectedContent: {
-    flex: 1,
 
-    marginLeft: 12,
+    /*
+    |--------------------------------------------------------------------------
+    | CURRENT LOCATION
+    |--------------------------------------------------------------------------
+    */
 
-    marginRight: 8,
-  },
+    currentLocation: {
 
-  selectedTitle: {
-    fontSize: 15,
+      minHeight: 70,
 
-    fontWeight: '800',
+      marginTop: 14,
 
-    color: COLORS.black,
-  },
+      borderRadius: 16,
 
-  selectedAddress: {
-    marginTop: 3,
+      backgroundColor:
+        COLORS.greenLight,
 
-    fontSize: 12,
+      flexDirection:
+        'row',
 
-    color: COLORS.gray,
-  },
+      alignItems:
+        'center',
 
+      paddingHorizontal:
+        14,
 
-  results: {
-    flex: 1,
+    },
 
-    marginTop: 10,
-  },
 
-  result: {
-    minHeight: 70,
+    currentIcon: {
 
-    flexDirection: 'row',
+      width: 42,
 
-    alignItems: 'center',
+      height: 42,
 
-    borderBottomWidth: 1,
+      borderRadius: 21,
 
-    borderBottomColor: '#F0F1F2',
-  },
+      backgroundColor:
+        COLORS.white,
 
-  resultIcon: {
-    width: 42,
-    height: 42,
+      alignItems:
+        'center',
 
-    borderRadius: 21,
+      justifyContent:
+        'center',
 
-    backgroundColor: COLORS.greenLight,
+    },
 
-    alignItems: 'center',
 
-    justifyContent: 'center',
-  },
+    currentText: {
 
-  resultContent: {
-    flex: 1,
+      flex: 1,
 
-    marginLeft: 12,
+      marginLeft: 12,
 
-    marginRight: 8,
-  },
+    },
 
-  resultName: {
-    fontSize: 15,
 
-    fontWeight: '700',
+    currentTitle: {
 
-    color: COLORS.black,
-  },
+      fontSize: 15,
 
-  resultAddress: {
-    marginTop: 3,
+      fontWeight:
+        '800',
 
-    fontSize: 12,
+      color:
+        COLORS.black,
 
-    lineHeight: 17,
+    },
 
-    color: COLORS.gray,
-  },
 
+    currentSubtitle: {
 
-  loading: {
-    height: 70,
+      marginTop: 3,
 
-    flexDirection: 'row',
+      fontSize: 12,
 
-    alignItems: 'center',
+      color:
+        COLORS.gray,
 
-    justifyContent: 'center',
-  },
+    },
 
-  loadingText: {
-    marginLeft: 9,
 
-    fontSize: 13,
+    /*
+    |--------------------------------------------------------------------------
+    | MAP OPTION
+    |--------------------------------------------------------------------------
+    */
 
-    color: COLORS.gray,
-  },
+    mapOption: {
 
+      minHeight: 70,
 
-  empty: {
-    alignItems: 'center',
+      marginTop: 10,
 
-    paddingTop: 50,
+      borderRadius: 16,
 
-    paddingHorizontal: 30,
-  },
+      borderWidth: 1,
 
-  emptyIcon: {
-    width: 58,
-    height: 58,
+      borderColor:
+        COLORS.border,
 
-    borderRadius: 29,
+      flexDirection:
+        'row',
 
-    backgroundColor: '#F2F4F5',
+      alignItems:
+        'center',
 
-    alignItems: 'center',
+      paddingHorizontal:
+        14,
 
-    justifyContent: 'center',
-  },
+    },
 
-  emptyTitle: {
-    marginTop: 14,
 
-    fontSize: 16,
+    mapIcon: {
 
-    fontWeight: '800',
+      width: 42,
 
-    color: COLORS.black,
-  },
+      height: 42,
 
-  emptyText: {
-    marginTop: 6,
+      borderRadius: 21,
 
-    textAlign: 'center',
+      backgroundColor:
+        COLORS.greenLight,
 
-    fontSize: 13,
+      alignItems:
+        'center',
 
-    lineHeight: 19,
+      justifyContent:
+        'center',
 
-    color: COLORS.gray,
-  },
+    },
 
 
-  bottomArea: {
-    paddingTop: 10,
+    mapText: {
 
-    paddingBottom: 12,
+      flex: 1,
 
-    backgroundColor: COLORS.white,
-  },
+      marginLeft: 12,
 
-  continueButton: {
-    height: 56,
+    },
 
-    borderRadius: 16,
 
-    backgroundColor: COLORS.green,
+    mapTitle: {
 
-    flexDirection: 'row',
+      fontSize: 15,
 
-    alignItems: 'center',
+      fontWeight:
+        '800',
 
-    justifyContent: 'center',
-  },
+      color:
+        COLORS.black,
 
-  continueDisabled: {
-    backgroundColor: '#E8EAEC',
-  },
+    },
 
-  continueText: {
-    color: COLORS.white,
 
-    fontSize: 16,
+    mapSubtitle: {
 
-    fontWeight: '800',
+      marginTop: 3,
 
-    marginRight: 10,
-  },
+      fontSize: 12,
 
-  continueTextDisabled: {
-    color: COLORS.lightGray,
-  },
+      color:
+        COLORS.gray,
 
-});
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | SELECTED
+    |--------------------------------------------------------------------------
+    */
+
+    selectedCard: {
+
+      minHeight: 76,
+
+      marginTop: 12,
+
+      borderRadius: 16,
+
+      borderWidth: 1.5,
+
+      borderColor:
+        COLORS.green,
+
+      backgroundColor:
+        COLORS.greenLight,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      paddingHorizontal:
+        14,
+
+    },
+
+
+    selectedIcon: {
+
+      width: 42,
+
+      height: 42,
+
+      borderRadius: 21,
+
+      backgroundColor:
+        COLORS.white,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    selectedContent: {
+
+      flex: 1,
+
+      marginLeft: 12,
+
+      marginRight: 8,
+
+    },
+
+
+    selectedTitle: {
+
+      fontSize: 15,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    selectedAddress: {
+
+      marginTop: 3,
+
+      fontSize: 12,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESULTS
+    |--------------------------------------------------------------------------
+    */
+
+    results: {
+
+      flex: 1,
+
+      marginTop: 10,
+
+    },
+
+
+    result: {
+
+      minHeight: 70,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      borderBottomWidth: 1,
+
+      borderBottomColor:
+        '#F0F1F2',
+
+    },
+
+
+    resultIcon: {
+
+      width: 42,
+
+      height: 42,
+
+      borderRadius: 21,
+
+      backgroundColor:
+        COLORS.greenLight,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    resultContent: {
+
+      flex: 1,
+
+      marginLeft: 12,
+
+      marginRight: 8,
+
+    },
+
+
+    resultName: {
+
+      fontSize: 15,
+
+      fontWeight:
+        '700',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    resultAddress: {
+
+      marginTop: 3,
+
+      fontSize: 12,
+
+      lineHeight: 17,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | LOADING
+    |--------------------------------------------------------------------------
+    */
+
+    loading: {
+
+      height: 70,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    loadingText: {
+
+      marginLeft: 9,
+
+      fontSize: 13,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | EMPTY
+    |--------------------------------------------------------------------------
+    */
+
+    empty: {
+
+      alignItems:
+        'center',
+
+      paddingTop:
+        50,
+
+      paddingHorizontal:
+        30,
+
+    },
+
+
+    emptyIcon: {
+
+      width: 58,
+
+      height: 58,
+
+      borderRadius: 29,
+
+      backgroundColor:
+        '#F2F4F5',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    emptyTitle: {
+
+      marginTop: 14,
+
+      fontSize: 16,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    emptyText: {
+
+      marginTop: 6,
+
+      textAlign:
+        'center',
+
+      fontSize: 13,
+
+      lineHeight: 19,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | BOTTOM
+    |--------------------------------------------------------------------------
+    */
+
+    bottomArea: {
+
+      paddingTop:
+        10,
+
+      paddingBottom:
+        12,
+
+      backgroundColor:
+        COLORS.white,
+
+    },
+
+
+    continueButton: {
+
+      height: 56,
+
+      borderRadius: 16,
+
+      backgroundColor:
+        COLORS.green,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    continueDisabled: {
+
+      backgroundColor:
+        '#E8EAEC',
+
+    },
+
+
+    continueText: {
+
+      color:
+        COLORS.white,
+
+      fontSize: 16,
+
+      fontWeight:
+        '800',
+
+      marginRight:
+        10,
+
+    },
+
+
+    continueTextDisabled: {
+
+      color:
+        COLORS.lightGray,
+
+    },
+
+  });
