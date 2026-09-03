@@ -29,13 +29,11 @@ export default function RiderLoginScreen() {
       return;
     }
     setError('');
-    router.replace('/');
+    router.replace('/home');
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.container}>
         <View style={styles.brandWrap}>
           <View style={styles.logo}><Text style={styles.logoText}>R</Text></View>
@@ -45,9 +43,7 @@ export default function RiderLoginScreen() {
 
         <View style={styles.card}>
           <Text style={styles.title}>Welcome, Rider</Text>
-          <Text style={styles.description}>
-            Sign in to go online, receive ride requests, and earn on every trip.
-          </Text>
+          <Text style={styles.description}>Sign in to go online, receive ride requests, and earn on every trip.</Text>
 
           <Text style={styles.label}>Mobile number</Text>
           <View style={styles.phoneRow}>
@@ -80,9 +76,7 @@ export default function RiderLoginScreen() {
 
           {!!error && <Text style={styles.error}>{error}</Text>}
 
-          <Pressable
-            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-            onPress={otpSent ? verifyOtp : sendOtp}>
+          <Pressable style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]} onPress={otpSent ? verifyOtp : sendOtp}>
             <Text style={styles.buttonText}>{otpSent ? 'Verify & Continue' : 'Send OTP'}</Text>
           </Pressable>
 
