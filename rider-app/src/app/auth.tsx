@@ -78,7 +78,7 @@ export default function AuthScreen() {
 
     setError('');
 
-    router.replace('/personal-details');
+    router.push('/personal-details');
   };
 
   return (

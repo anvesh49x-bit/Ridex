@@ -351,7 +351,13 @@ export default function VehicleDetailsScreen() {
       >
         {/* HEADER */}
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/personal-details');
+            }
+          }} style={styles.backButton}>
             <Ionicons name="chevron-back" size={22} color={COLORS_TOKENS.ink} />
           </Pressable>
 

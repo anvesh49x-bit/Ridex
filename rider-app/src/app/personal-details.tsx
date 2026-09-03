@@ -49,7 +49,13 @@ export default function PersonalDetailsScreen() {
         <View style={styles.header}>
 
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/auth');
+              }
+            }}
             style={styles.backButton}
           >
             <Text style={styles.backArrow}>‹</Text>

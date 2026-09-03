@@ -101,7 +101,13 @@ export default function DocumentsScreen() {
 
         <View style={styles.header}>
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/vehicle-details');
+              }
+            }}
             style={styles.backButton}
           >
             <Text style={styles.backArrow}>

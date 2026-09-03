@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 const trips = [
   {
     time: 'Today, 8:42 PM',
@@ -44,456 +46,576 @@ const trips = [
 ];
 
 export default function Home() {
+  const [online, setOnline] = useState(true);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ================= HEADER ================= */}
+      <View style={styles.root}>
 
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.menuButton}>
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-          </TouchableOpacity>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+        >
 
-          <View style={styles.onlineTitle}>
-            <View style={styles.onlineGreenDot} />
-            <Text style={styles.onlineTitleText}>You’re Online</Text>
+          {/* HEADER */}
+          <View style={styles.header}>
+
+            <TouchableOpacity style={styles.menuButton}>
+              <Ionicons name="menu" size={32} color="#101820" />
+            </TouchableOpacity>
+
+            <View style={styles.onlineTitle}>
+              <View
+                style={[
+                  styles.statusDot,
+                  { backgroundColor: online ? '#008A38' : '#98A2B3' },
+                ]}
+              />
+
+              <Text style={styles.onlineTitleText}>
+                {online ? "You're Online" : "You're Offline"}
+              </Text>
+            </View>
+
+            <View style={styles.headerRight}>
+
+              <View
+                style={[
+                  styles.onlineControl,
+                  online && styles.onlineControlActive,
+                ]}
+              >
+                <Ionicons
+                  name="bicycle"
+                  size={19}
+                  color={online ? '#FFFFFF' : '#667085'}
+                />
+
+                <Switch
+                  value={online}
+                  onValueChange={setOnline}
+                  trackColor={{
+                    false: '#E5E7EB',
+                    true: '#008A38',
+                  }}
+                  thumbColor="#FFFFFF"
+                  ios_backgroundColor="#E5E7EB"
+                />
+
+                <Text
+                  style={[
+                    styles.onlineText,
+                    !online && styles.offlineText,
+                  ]}
+                >
+                  {online ? 'Online' : 'Offline'}
+                </Text>
+              </View>
+
+              <TouchableOpacity style={styles.notificationButton}>
+                <Ionicons
+                  name="notifications-outline"
+                  size={31}
+                  color="#101820"
+                />
+
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.badgeText}>3</Text>
+                </View>
+              </TouchableOpacity>
+
+            </View>
           </View>
 
-          <TouchableOpacity style={styles.onlineSwitch}>
-            <Text style={styles.scooterIcon}>🏍</Text>
+          {/* EARNINGS CARD */}
+          <TouchableOpacity style={styles.earningsCard} activeOpacity={0.9}>
 
-            <View style={styles.switchCircle} />
-
-            <Text style={styles.onlineSwitchText}>Online</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.notificationButton}>
-            <Text style={styles.bell}>♧</Text>
-
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationBadgeText}>3</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* ================= EARNINGS CARD ================= */}
-
-        <TouchableOpacity activeOpacity={0.9} style={styles.earningsCard}>
-          <View style={styles.earningsContent}>
-            <Text style={styles.earningsLabel}>Today’s Earnings</Text>
-
-            <Text style={styles.earningsAmount}>₹1,245</Text>
-
-            <View style={styles.ridesCompletedRow}>
-              <Text style={styles.ridesCompleted}>
-                6 Rides Completed
+            <View style={styles.earningsContent}>
+              <Text style={styles.earningsLabel}>
+                Today's Earnings
               </Text>
 
-              <View style={styles.earningsArrow}>
-                <Text style={styles.arrowText}>›</Text>
+              <Text style={styles.earningsAmount}>
+                ₹1,245
+              </Text>
+
+              <View style={styles.completedRow}>
+                <Text style={styles.completedText}>
+                  6 Rides Completed
+                </Text>
+
+                <View style={styles.roundArrow}>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color="#FFFFFF"
+                  />
+                </View>
               </View>
             </View>
-          </View>
 
-          {/* Wallet illustration */}
-          <View style={styles.walletIllustration}>
-            <View style={styles.walletBack}>
-              <View style={styles.cardLine} />
-              <View style={styles.cardLineSmall} />
+            {/* Wallet illustration */}
+            <View style={styles.walletArea}>
+
+              <Ionicons
+                name="trending-up"
+                size={85}
+                color="rgba(255,255,255,0.08)"
+                style={styles.trendIcon}
+              />
+
+              <View style={styles.walletBack}>
+                <View style={styles.walletCardLine} />
+                <View style={styles.walletCardLineSmall} />
+              </View>
+
+              <View style={styles.wallet}>
+                <View style={styles.walletTop} />
+
+                <View style={styles.walletButton}>
+                  <View style={styles.walletButtonInner} />
+                </View>
+              </View>
+
+              <View style={[styles.coin, styles.coin1]}>
+                <Text style={styles.coinText}>₹</Text>
+              </View>
+
+              <View style={[styles.coin, styles.coin2]}>
+                <Text style={styles.coinText}>₹</Text>
+              </View>
+
+              <View style={[styles.coin, styles.coin3]}>
+                <Text style={styles.coinText}>₹</Text>
+              </View>
+
             </View>
-
-            <View style={styles.wallet}>
-              <View style={styles.walletTopLine} />
-              <View style={styles.walletButton} />
-            </View>
-<View style={[styles.coin, styles.coinOne]}>
-              <Text style={styles.coinText}>₹</Text>
-            </View>
-
-            <View style={[styles.coin, styles.coinTwo]}>
-              <Text style={styles.coinText}>₹</Text>
-            </View>
-
-            <View style={[styles.coin, styles.coinThree]}>
-              <Text style={styles.coinText}>₹</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* ================= TODAY SUMMARY ================= */}
-
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Today’s Summary</Text>
-
-            <TouchableOpacity>
-              <Text style={styles.viewAll}>
-                View all <Text style={styles.viewArrow}>›</Text>
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <SummaryItem
-              icon="⌖"
-              iconType="green"
-              label="Distance"
-              value="48.6"
-              suffix=" km"
-            />
-
-            <View style={styles.summaryDivider} />
-
-            <SummaryItem
-              icon="◷"
-              iconType="blue"
-              label="Online Time"
-              value="06h 32m"
-            />
-
-            <View style={styles.summaryDivider} />
-
-            <SummaryItem
-              icon="♙"
-              iconType="orange"
-              label="Cash Collected"
-              value="₹980"
-            />
-
-            <View style={styles.summaryDivider} />
-
-            <SummaryItem
-              icon="↑"
-              iconType="purple"
-              label="Avg. Earnings"
-              value="₹207"
-              suffix="/ride"
-            />
-          </View>
-        </View>
-
-        {/* ================= QUICK ACTIONS ================= */}
-
-        <View style={styles.quickActions}>
-          <QuickAction
-            icon="🏍"
-            iconType="green"
-            title="Ride Requests"
-            subtitle="New requests"
-          />
-
-          <QuickAction
-            icon="▥"
-            iconType="blue"
-            title="Earnings"
-            subtitle="View details"
-          />
-
-          <QuickAction
-            icon="◷"
-            iconType="purple"
-            title="Ride History"
-            subtitle="Past trips"
-          />
-
-          <QuickAction
-            icon="●"
-            iconType="red"
-            title="Profile"
-            subtitle="View & edit"
-          />
-        </View>
-
-        {/* ================= RECENT TRIPS ================= */}
-
-        <View style={styles.recentCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Trips</Text>
-
-            <TouchableOpacity>
-              <Text style={styles.viewAll}>
-                View all <Text style={styles.viewArrow}>›</Text>
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {trips.map((trip, index) => (
-            <TripCard key={index} trip={trip} />
-          ))}
-        </View>
-
-        {/* ================= INCENTIVE ================= */}
-
-        <View style={styles.incentiveCard}>
-          <View style={styles.trophyCircle}>
-            <Text style={styles.trophy}>♛</Text>
-          </View>
-
-          <View style={styles.incentiveText}>
-            <Text style={styles.incentiveTitle}>
-              Complete 10 rides today
-            </Text>
-
-            <Text style={styles.incentiveSubtitle}>
-              Earn extra ₹150 incentive
-            </Text>
-          </View>
-
-          <View style={styles.progressContainer}>
-            <Text style={styles.progressText}>6 / 10</Text>
-
-            <View style={styles.progressBackground}>
-              <View style={styles.progressFill} />
-            </View>
-          </View>
-
-          <Text style={styles.incentiveArrow}>›</Text>
-        </View>
-
-        {/* Space for bottom navigation */}
-        <View style={{ height: 100 }} />
-      </ScrollView>
-
-      {/* ================= BOTTOM NAVIGATION ================= */}
-
-      <View style={styles.bottomNav}>
-        <BottomNavItem
-          icon="⌂"
-          label="Home"
-          active
-        />
-
-        <BottomNavItem
-          icon="▱"
-          label="Earnings"
-        />
-
-        <View style={styles.centerNavWrapper}>
-          <TouchableOpacity style={styles.centerRideButton}>
-            <Text style={styles.centerRideIcon}>🏍</Text>
           </TouchableOpacity>
 
-          <Text style={styles.centerRideLabel}>Rides</Text>
+          {/* SUMMARY */}
+          <View style={styles.card}>
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                Today's Summary
+              </Text>
+
+              <TouchableOpacity style={styles.viewAllButton}>
+                <Text style={styles.viewAll}>
+                  View all
+                </Text>
+
+                <Ionicons
+                  name="chevron-forward"
+                  size={19}
+                  color="#344054"
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.summaryRow}>
+
+              <SummaryItem
+                icon="navigate-outline"
+                iconColor="#008A38"
+                iconBg="#ECF8F0"
+                label="Distance"
+                value="48.6"
+                suffix=" km"
+              />
+
+              <SummaryDivider />
+
+              <SummaryItem
+                icon="time-outline"
+                iconColor="#1260D6"
+                iconBg="#EEF5FF"
+                label="Online Time"
+                value="06h 32m"
+              />
+
+              <SummaryDivider />
+
+              <SummaryItem
+                icon="cash-outline"
+                iconColor="#F39A00"
+                iconBg="#FFF6E8"
+                label="Cash Collected"
+                value="₹980"
+              />
+
+              <SummaryDivider />
+
+              <SummaryItem
+                icon="arrow-up-circle-outline"
+                iconColor="#7434C6"
+                iconBg="#F5EEFF"
+                label="Avg. Earnings"
+                value="₹207"
+                suffix="/ride"
+              />
+
+            </View>
+          </View>
+
+          {/* QUICK ACTIONS */}
+          <View style={styles.quickActions}>
+
+            <QuickAction
+              icon="bicycle"
+              iconColor="#008A38"
+              iconBg="#ECF8F0"
+              title="Ride Requests"
+              subtitle="New requests"
+            />
+
+            <QuickAction
+              icon="bar-chart-outline"
+              iconColor="#1260D6"
+              iconBg="#EEF5FF"
+              title="Earnings"
+              subtitle="View details"
+            />
+
+            <QuickAction
+              icon="time-outline"
+              iconColor="#7434C6"
+              iconBg="#F5EEFF"
+              title="Ride History"
+              subtitle="Past trips"
+            />
+
+            <QuickAction
+              icon="person"
+              iconColor="#E63956"
+              iconBg="#FFECEF"
+              title="Profile"
+              subtitle="View & edit"
+            />
+
+          </View>
+
+          {/* RECENT TRIPS */}
+          <View style={styles.card}>
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                Recent Trips
+              </Text>
+
+              <TouchableOpacity style={styles.viewAllButton}>
+                <Text style={styles.viewAll}>
+                  View all
+                </Text>
+
+                <Ionicons
+                  name="chevron-forward"
+                  size={19}
+                  color="#344054"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {trips.map((trip, index) => (
+              <TripCard
+                key={index}
+                trip={trip}
+              />
+            ))}
+
+          </View>
+
+          {/* INCENTIVE */}
+          <TouchableOpacity style={styles.incentiveCard}>
+
+            <View style={styles.trophyCircle}>
+              <Ionicons
+                name="trophy"
+                size={23}
+                color="#FFFFFF"
+              />
+            </View>
+
+            <View style={styles.incentiveText}>
+              <Text style={styles.incentiveTitle}>
+                Complete 10 rides today
+              </Text>
+
+              <Text style={styles.incentiveSubtitle}>
+                Earn extra ₹150 incentive
+              </Text>
+            </View>
+
+            <View style={styles.progressArea}>
+              <Text style={styles.progressText}>
+                6 / 10
+              </Text>
+
+              <View style={styles.progressBackground}>
+                <View style={styles.progressFill} />
+              </View>
+            </View>
+
+            <Ionicons
+              name="chevron-forward"
+              size={22}
+              color="#344054"
+            />
+
+          </TouchableOpacity>
+
+          <View style={{ height: 100 }} />
+
+        </ScrollView>
+
+        {/* BOTTOM NAV */}
+        <View style={styles.bottomNav}>
+
+          <BottomItem
+            icon="home"
+            label="Home"
+            active
+          />
+
+          <BottomItem
+            icon="wallet-outline"
+            label="Earnings"
+          />
+
+         <View style={styles.centerWrapper}>
+  <TouchableOpacity
+    style={styles.centerButton}
+    onPress={() => router.push('/rides')}
+  >
+    <Ionicons
+      name="bicycle"
+      size={30}
+      color="#FFFFFF"
+    />
+  </TouchableOpacity>
+
+            <Text style={styles.centerLabel}>
+              Rides
+            </Text>
+          </View>
+
+          <BottomItem
+            icon="chatbubble-ellipses-outline"
+            label="Messages"
+            badge="2"
+          />
+
+          <BottomItem
+            icon="grid-outline"
+            label="More"
+          />
+
         </View>
-
-        <BottomNavItem
-          icon="▤"
-          label="Messages"
-          badge="2"
-        />
-
-        <BottomNavItem
-          icon="⠿"
-          label="More"
-        />
       </View>
     </SafeAreaView>
   );
 }
 
-/* =========================================================
-   SUMMARY ITEM
-========================================================= */
+/* SUMMARY ITEM */
 
 function SummaryItem({
   icon,
-  iconType,
+  iconColor,
+  iconBg,
   label,
   value,
   suffix,
-}: {
-  icon: string;
-  iconType: string;
-  label: string;
-  value: string;
-  suffix?: string;
-}) {
+}: any) {
   return (
     <View style={styles.summaryItem}>
+
       <View
         style={[
           styles.summaryIcon,
-          iconType === 'green' && styles.summaryIconGreen,
-          iconType === 'blue' && styles.summaryIconBlue,
-          iconType === 'orange' && styles.summaryIconOrange,
-          iconType === 'purple' && styles.summaryIconPurple,
+          { backgroundColor: iconBg },
         ]}
       >
-        <Text
-          style={[
-            styles.summaryIconText,
-            iconType === 'green' && styles.greenText,
-            iconType === 'blue' && styles.blueText,
-            iconType === 'orange' && styles.orangeText,
-            iconType === 'purple' && styles.purpleText,
-          ]}
-        >
-          {icon}
-        </Text>
+        <Ionicons
+          name={icon}
+          size={26}
+          color={iconColor}
+        />
       </View>
 
-      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={styles.summaryLabel}>
+        {label}
+      </Text>
 
       <Text style={styles.summaryValue}>
         {value}
+
         {suffix && (
-          <Text style={styles.summarySuffix}>{suffix}</Text>
+          <Text style={styles.summarySuffix}>
+            {suffix}
+          </Text>
         )}
       </Text>
+
     </View>
   );
 }
 
-/* =========================================================
-   QUICK ACTION
-========================================================= */
+function SummaryDivider() {
+  return <View style={styles.summaryDivider} />;
+}
+
+/* QUICK ACTION */
 
 function QuickAction({
   icon,
-  iconType,
+  iconColor,
+  iconBg,
   title,
   subtitle,
-}: {
-  icon: string;
-  iconType: string;
-  title: string;
-  subtitle: string;
-}) {
+}: any) {
   return (
-    <TouchableOpacity style={styles.quickActionCard}>
+    <TouchableOpacity style={styles.quickCard}>
+
       <View
         style={[
           styles.quickIcon,
-          iconType === 'green' && styles.quickGreen,
-          iconType === 'blue' && styles.quickBlue,
-          iconType === 'purple' && styles.quickPurple,
-          iconType === 'red' && styles.quickRed,
+          { backgroundColor: iconBg },
         ]}
       >
-        <Text
-          style={[
-            styles.quickIconText,
-            iconType === 'green' && styles.greenText,
-            iconType === 'blue' && styles.blueText,
-            iconType === 'purple' && styles.purpleText,
-            iconType === 'red' && styles.redText,
-          ]}
-        >
-          {icon}
-        </Text>
+        <Ionicons
+          name={icon}
+          size={26}
+          color={iconColor}
+        />
       </View>
 
-      <Text style={styles.quickTitle}>{title}</Text>
+      <Text style={styles.quickTitle}>
+        {title}
+      </Text>
 
-      <Text style={styles.quickSubtitle}>{subtitle}</Text>
+      <Text style={styles.quickSubtitle}>
+        {subtitle}
+      </Text>
+
     </TouchableOpacity>
   );
 }
 
-/* =========================================================
-   TRIP CARD
-========================================================= */
+/* TRIP */
 
-function TripCard({
-  trip,
-}: {
-  trip: {
-    time: string;
-    from: string;
-    to: string;
-    distance: string;
-    duration: string;
-    amount: string;
-  };
-}) {
+function TripCard({ trip }: any) {
   return (
     <TouchableOpacity style={styles.tripCard}>
-      <View style={styles.tripMain}>
-        <View style={styles.tripTimeBadge}>
-          <Text style={styles.tripTime}>{trip.time}</Text>
+
+      <View style={styles.tripLocations}>
+
+        <View style={styles.timeBadge}>
+          <Text style={styles.timeText}>
+            {trip.time}
+          </Text>
         </View>
 
         <View style={styles.locationRow}>
           <View style={styles.greenPin}>
-            <View style={styles.pinInner} />
+            <View style={styles.pinDot} />
           </View>
 
-          <Text style={styles.locationText}>{trip.from}</Text>
+          <Text style={styles.locationText}>
+            {trip.from}
+          </Text>
         </View>
 
-        <View style={styles.locationLine} />
+        <View style={styles.locationConnector} />
 
         <View style={styles.locationRow}>
           <View style={styles.redPin}>
-            <View style={styles.pinInnerRed} />
+            <View style={styles.pinDot} />
           </View>
 
-          <Text style={styles.locationText}>{trip.to}</Text>
+          <Text style={styles.locationText}>
+            {trip.to}
+          </Text>
         </View>
+
       </View>
 
       <View style={styles.tripMetric}>
-        <Text style={styles.metricValue}>{trip.distance}</Text>
-        <Text style={styles.metricLabel}>Distance</Text>
+        <Text style={styles.metricValue}>
+          {trip.distance}
+        </Text>
+
+        <Text style={styles.metricLabel}>
+          Distance
+        </Text>
       </View>
 
       <View style={styles.tripMetric}>
-        <Text style={styles.metricValue}>{trip.duration}</Text>
-        <Text style={styles.metricLabel}>Duration</Text>
+        <Text style={styles.metricValue}>
+          {trip.duration}
+        </Text>
+
+        <Text style={styles.metricLabel}>
+          Duration
+        </Text>
       </View>
 
       <View style={styles.tripAmount}>
-        <Text style={styles.amountText}>{trip.amount}</Text>
+
+        <Text style={styles.amountText}>
+          {trip.amount}
+        </Text>
 
         <View style={styles.cashBadge}>
-          <Text style={styles.cashIcon}>▣</Text>
-          <Text style={styles.cashText}>Cash</Text>
+          <Ionicons
+            name="cash-outline"
+            size={12}
+            color="#087B32"
+          />
+
+          <Text style={styles.cashText}>
+            Cash
+          </Text>
         </View>
+
       </View>
 
-      <Text style={styles.tripArrow}>›</Text>
+      <Ionicons
+        name="chevron-forward"
+        size={23}
+        color="#344054"
+      />
+
     </TouchableOpacity>
   );
 }
 
-/* =========================================================
-   BOTTOM NAV
-========================================================= */
+/* BOTTOM NAV */
 
-function BottomNavItem({
+function BottomItem({
   icon,
   label,
   active = false,
   badge,
-}: {
-  icon: string;
-  label: string;
-  active?: boolean;
-  badge?: string;
-}) {
+}: any) {
   return (
     <TouchableOpacity style={styles.navItem}>
+
       <View style={styles.navIconWrapper}>
-        <Text
-          style={[
-            styles.navIcon,
-            active && styles.navIconActive,
-          ]}
-        >
-          {icon}
-        </Text>
+
+        <Ionicons
+          name={icon}
+          size={27}
+          color={active ? '#008A38' : '#344054'}
+        />
 
         {badge && (
           <View style={styles.navBadge}>
-            <Text style={styles.navBadgeText}>{badge}</Text>
+            <Text style={styles.navBadgeText}>
+              {badge}
+            </Text>
           </View>
         )}
+
       </View>
 
       <Text
@@ -504,13 +626,12 @@ function BottomNavItem({
       >
         {label}
       </Text>
+
     </TouchableOpacity>
   );
 }
 
-/* =========================================================
-   STYLES
-========================================================= */
+/* STYLES */
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -518,14 +639,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
 
   content: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 4,
+    paddingBottom: 20,
   },
 
   /* HEADER */
@@ -534,36 +655,27 @@ const styles = StyleSheet.create({
     height: 72,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
 
   menuButton: {
     width: 42,
     height: 42,
+    alignItems: 'flex-start',
     justifyContent: 'center',
-    gap: 5,
-  },
-
-  menuLine: {
-    width: 31,
-    height: 3,
-    borderRadius: 3,
-    backgroundColor: '#182230',
   },
 
   onlineTitle: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 'auto',
-    marginLeft: 8,
+    marginLeft: 4,
+    flex: 1,
   },
 
-  onlineGreenDot: {
+  statusDot: {
     width: 13,
     height: 13,
     borderRadius: 7,
-    backgroundColor: '#008A38',
-    marginRight: 12,
+    marginRight: 11,
   },
 
   onlineTitleText: {
@@ -572,201 +684,200 @@ const styles = StyleSheet.create({
     color: '#101820',
   },
 
-  onlineSwitch: {
-    height: 46,
-    paddingLeft: 9,
-    paddingRight: 13,
-    borderRadius: 25,
-    backgroundColor: '#EAF7EF',
+  headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 12,
   },
 
-  scooterIcon: {
-    fontSize: 17,
-    marginRight: 7,
+  onlineControl: {
+    height: 44,
+    paddingLeft: 8,
+    paddingRight: 8,
+    borderRadius: 23,
+    backgroundColor: '#F2F4F7',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 
-  switchCircle: {
-    width: 37,
-    height: 37,
-    borderRadius: 19,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: '#008A38',
-    marginRight: 9,
+  onlineControlActive: {
+    backgroundColor: '#EAF7EF',
   },
 
-  onlineSwitchText: {
+  onlineText: {
     color: '#087B32',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
+  },
+
+  offlineText: {
+    color: '#667085',
   },
 
   notificationButton: {
     width: 43,
     height: 43,
+    marginLeft: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  bell: {
-    fontSize: 31,
-    color: '#182230',
-    transform: [{ rotate: '180deg' }],
-  },
-
   notificationBadge: {
     position: 'absolute',
+    top: -1,
     right: -1,
-    top: -2,
-    width: 25,
-    height: 25,
-    borderRadius: 13,
+    width: 23,
+    height: 23,
+    borderRadius: 12,
     backgroundColor: '#EF233C',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  notificationBadgeText: {
+  badgeText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
   },
 
   /* EARNINGS */
 
   earningsCard: {
-    height: 234,
+    height: 134,
     borderRadius: 18,
     backgroundColor: '#00852F',
     overflow: 'hidden',
+    marginBottom: 20,
     flexDirection: 'row',
-    marginBottom: 22,
   },
 
   earningsContent: {
-    paddingLeft: 22,
-    paddingTop: 24,
     flex: 1,
+    paddingLeft: 22,
+    paddingTop: 25,
     zIndex: 2,
   },
 
   earningsLabel: {
     color: '#FFFFFF',
     fontSize: 19,
-    fontWeight: '500',
-    marginBottom: 20,
+    marginBottom: 18,
   },
 
   earningsAmount: {
     color: '#FFFFFF',
     fontSize: 42,
-    lineHeight: 46,
+    lineHeight: 48,
     fontWeight: '800',
-    marginBottom: 23,
+    marginBottom: 20,
   },
 
-  ridesCompletedRow: {
+  completedRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
 
-  ridesCompleted: {
+  completedText: {
     color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '500',
+    fontSize: 17,
   },
 
-  earningsArrow: {
+  roundArrow: {
     width: 37,
     height: 37,
     borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.20)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 12,
-  },
-
-  arrowText: {
-    color: '#FFFFFF',
-    fontSize: 29,
-    lineHeight: 30,
+    marginLeft: 11,
   },
 
   /* WALLET */
 
-  walletIllustration: {
-    width: 175,
-    height: 150,
+  walletArea: {
+    width: 180,
+    height: 170,
     position: 'absolute',
-    right: 8,
+    right: 0,
     bottom: 0,
+  },
+
+  trendIcon: {
+    position: 'absolute',
+    right: -2,
+    top: 5,
   },
 
   walletBack: {
     position: 'absolute',
-    width: 100,
-    height: 67,
-    backgroundColor: '#50B978',
-    right: 15,
-    top: 25,
+    width: 108,
+    height: 69,
+    right: 23,
+    top: 24,
     borderRadius: 9,
-    transform: [{ rotate: '-20deg' }],
+    backgroundColor: '#55C47F',
+    transform: [{ rotate: '-19deg' }],
   },
 
-  cardLine: {
+  walletCardLine: {
     position: 'absolute',
-    width: 65,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#9DDBB4',
-    top: 15,
     left: 15,
+    top: 17,
+    width: 67,
+    height: 5,
+    borderRadius: 4,
+    backgroundColor: '#9BE0B6',
   },
 
-  cardLineSmall: {
+  walletCardLineSmall: {
     position: 'absolute',
+    left: 15,
+    top: 29,
     width: 45,
     height: 5,
-    borderRadius: 3,
-    backgroundColor: '#9DDBB4',
-    top: 28,
-    left: 15,
+    borderRadius: 4,
+    backgroundColor: '#9BE0B6',
   },
 
   wallet: {
     position: 'absolute',
-    width: 120,
-    height: 76,
-    right: 22,
-    bottom: 22,
-    backgroundColor: '#25A85D',
+    width: 125,
+    height: 78,
+    right: 19,
+    bottom: 25,
     borderRadius: 10,
+    backgroundColor: '#27A95E',
     borderWidth: 2,
-    borderColor: '#0B7838',
+    borderColor: '#087B32',
     transform: [{ rotate: '3deg' }],
   },
 
-  walletTopLine: {
+  walletTop: {
     position: 'absolute',
+    top: 16,
     left: 14,
     right: 14,
-    top: 16,
     height: 4,
-    backgroundColor: '#70D296',
     borderRadius: 3,
+    backgroundColor: '#72D499',
   },
 
   walletButton: {
     position: 'absolute',
-    width: 19,
-    height: 19,
-    borderRadius: 10,
-    right: 12,
-    top: 28,
-    backgroundColor: '#E8F6ED',
+    right: 13,
+    top: 29,
+    width: 21,
+    height: 21,
+    borderRadius: 11,
+    backgroundColor: '#EAF7EF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  walletButtonInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#B9C5BD',
   },
 
   coin: {
@@ -774,51 +885,49 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     backgroundColor: '#F4B82A',
     borderWidth: 2,
-    borderColor: '#D89B08',
+    borderColor: '#D99C0A',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  coinOne: {
+  coin1: {
     width: 31,
     height: 31,
-    bottom: 8,
-    left: 35,
+    left: 27,
+    bottom: 9,
   },
 
-  coinTwo: {
-    width: 38,
-    height: 38,
+  coin2: {
+    width: 39,
+    height: 39,
+    left: 50,
     bottom: 8,
-    left: 58,
   },
 
-  coinThree: {
+  coin3: {
     width: 29,
     height: 29,
-    bottom: 28,
-    left: 69,
+    left: 68,
+    bottom: 29,
   },
 
   coinText: {
     color: '#FFF4B8',
-    fontSize: 13,
     fontWeight: '800',
+    fontSize: 12,
   },
 
-  /* SECTION */
+  /* CARDS */
 
-  sectionCard: {
+  card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#EEF0F2',
-    paddingHorizontal: 18,
-    paddingTop: 20,
-    paddingBottom: 20,
-    marginBottom: 20,
+    padding: 18,
+    marginBottom: 18,
 
-    shadowColor: '#000000',
+    shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 8,
     shadowOffset: {
@@ -833,24 +942,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 19,
   },
 
   sectionTitle: {
-    fontSize: 21,
+    fontSize: 20,
     fontWeight: '800',
     color: '#101820',
   },
 
-  viewAll: {
-    color: '#475467',
-    fontSize: 15,
-    fontWeight: '500',
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 
-  viewArrow: {
-    fontSize: 25,
-    color: '#101820',
+  viewAll: {
+    fontSize: 14,
+    color: '#475467',
+    marginRight: 3,
   },
 
   /* SUMMARY */
@@ -871,96 +980,54 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
-  },
-
-  summaryIconGreen: {
-    backgroundColor: '#ECF8F0',
-  },
-
-  summaryIconBlue: {
-    backgroundColor: '#EEF5FF',
-  },
-
-  summaryIconOrange: {
-    backgroundColor: '#FFF6E8',
-  },
-
-  summaryIconPurple: {
-    backgroundColor: '#F5EEFF',
-  },
-
-  summaryIconText: {
-    fontSize: 26,
-    fontWeight: '700',
-  },
-
-  greenText: {
-    color: '#008A38',
-  },
-
-  blueText: {
-    color: '#1260D6',
-  },
-
-  orangeText: {
-    color: '#F39A00',
-  },
-
-  purpleText: {
-    color: '#7434C6',
-  },
-
-  redText: {
-    color: '#E63956',
+    marginBottom: 11,
   },
 
   summaryLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#475467',
-    marginBottom: 7,
     textAlign: 'center',
+    marginBottom: 6,
   },
 
   summaryValue: {
     fontSize: 16,
-    fontWeight: '800',
     color: '#101820',
+    fontWeight: '800',
     textAlign: 'center',
   },
 
   summarySuffix: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '500',
   },
 
   summaryDivider: {
     width: 1,
     backgroundColor: '#E8EAED',
-    marginHorizontal: 7,
+    marginHorizontal: 5,
   },
 
   /* QUICK ACTIONS */
 
   quickActions: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 20,
+    gap: 9,
+    marginBottom: 18,
   },
 
-  quickActionCard: {
+  quickCard: {
     flex: 1,
-    minHeight: 156,
-    backgroundColor: '#FFFFFF',
+    height: 155,
     borderRadius: 17,
     borderWidth: 1,
     borderColor: '#EEF0F2',
-    paddingTop: 18,
-    paddingHorizontal: 8,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
+    paddingTop: 17,
 
-    shadowColor: '#000000',
-    shadowOpacity: 0.045,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
     shadowRadius: 7,
     shadowOffset: {
       width: 0,
@@ -979,29 +1046,8 @@ const styles = StyleSheet.create({
     marginBottom: 11,
   },
 
-  quickGreen: {
-    backgroundColor: '#EAF7EF',
-  },
-
-  quickBlue: {
-    backgroundColor: '#EDF5FF',
-  },
-
-  quickPurple: {
-    backgroundColor: '#F4ECFF',
-  },
-
-  quickRed: {
-    backgroundColor: '#FFECEF',
-  },
-
-  quickIconText: {
-    fontSize: 23,
-    fontWeight: '700',
-  },
-
   quickTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     color: '#101820',
     textAlign: 'center',
@@ -1009,61 +1055,40 @@ const styles = StyleSheet.create({
   },
 
   quickSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#667085',
-    textAlign: 'center',
   },
 
-  /* RECENT TRIPS */
-
-  recentCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#EEF0F2',
-    padding: 18,
-    marginBottom: 18,
-
-    shadowColor: '#000000',
-    shadowOpacity: 0.04,
-    shadowRadius: 7,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-
-    elevation: 2,
-  },
+  /* TRIPS */
 
   tripCard: {
-    minHeight: 111,
+    minHeight: 110,
     borderWidth: 1,
     borderColor: '#E7EAED',
     borderRadius: 15,
     marginBottom: 10,
-    paddingVertical: 13,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
   },
 
-  tripMain: {
-    flex: 1.75,
-    minWidth: 0,
+  tripLocations: {
+    flex: 1.65,
   },
 
-  tripTimeBadge: {
+  timeBadge: {
     alignSelf: 'flex-start',
     backgroundColor: '#EEF9F1',
-    borderRadius: 9,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    marginBottom: 8,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 7,
   },
 
-  tripTime: {
+  timeText: {
+    fontSize: 10,
     color: '#087B32',
-    fontSize: 11,
     fontWeight: '700',
   },
 
@@ -1079,14 +1104,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#008A38',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
-  },
-
-  pinInner: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#FFFFFF',
+    marginRight: 9,
   },
 
   redPin: {
@@ -1096,10 +1114,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4056',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 9,
   },
 
-  pinInnerRed: {
+  pinDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
@@ -1113,15 +1131,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
 
-  locationLine: {
-    height: 7,
+  locationConnector: {
     width: 1,
+    height: 8,
     backgroundColor: '#B8C0C8',
     marginLeft: 5,
   },
 
   tripMetric: {
-    width: 57,
+    width: 55,
     borderLeftWidth: 1,
     borderLeftColor: '#E8EAED',
     alignItems: 'center',
@@ -1129,19 +1147,19 @@ const styles = StyleSheet.create({
   },
 
   metricValue: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     color: '#101820',
     marginBottom: 5,
   },
 
   metricLabel: {
-    fontSize: 10,
+    fontSize: 9,
     color: '#667085',
   },
 
   tripAmount: {
-    width: 62,
+    width: 60,
     borderLeftWidth: 1,
     borderLeftColor: '#E8EAED',
     alignItems: 'center',
@@ -1149,37 +1167,26 @@ const styles = StyleSheet.create({
   },
 
   amountText: {
-    fontSize: 18,
     color: '#008A38',
+    fontSize: 17,
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: 5,
   },
 
   cashBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EAF7EF',
-    borderRadius: 9,
+    borderRadius: 8,
     paddingHorizontal: 6,
     paddingVertical: 4,
-  },
-
-  cashIcon: {
-    color: '#087B32',
-    fontSize: 10,
-    marginRight: 3,
   },
 
   cashText: {
     color: '#087B32',
     fontSize: 9,
     fontWeight: '700',
-  },
-
-  tripArrow: {
-    fontSize: 28,
-    color: '#344054',
-    marginLeft: 6,
+    marginLeft: 3,
   },
 
   /* INCENTIVE */
@@ -1190,22 +1197,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FAF3',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 13,
+    paddingHorizontal: 12,
   },
 
   trophyCircle: {
-    width: 45,
-    height: 45,
-    borderRadius: 23,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#008A38',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
-  },
-
-  trophy: {
-    color: '#FFFFFF',
-    fontSize: 23,
+    marginRight: 11,
   },
 
   incentiveText: {
@@ -1213,27 +1215,27 @@ const styles = StyleSheet.create({
   },
 
   incentiveTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: '#101820',
     marginBottom: 5,
   },
 
   incentiveSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#475467',
   },
 
-  progressContainer: {
-    width: 100,
-    marginRight: 9,
+  progressArea: {
+    width: 92,
+    marginRight: 8,
   },
 
   progressText: {
-    fontSize: 11,
+    fontSize: 10,
+    fontWeight: '700',
     color: '#344054',
-    fontWeight: '600',
-    marginBottom: 6,
+    marginBottom: 5,
   },
 
   progressBackground: {
@@ -1247,13 +1249,8 @@ const styles = StyleSheet.create({
   progressFill: {
     width: '60%',
     height: '100%',
-    backgroundColor: '#008A38',
     borderRadius: 4,
-  },
-
-  incentiveArrow: {
-    fontSize: 27,
-    color: '#344054',
+    backgroundColor: '#008A38',
   },
 
   /* BOTTOM NAV */
@@ -1271,7 +1268,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-around',
 
-    shadowColor: '#000000',
+    shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: {
@@ -1289,19 +1286,10 @@ const styles = StyleSheet.create({
   },
 
   navIconWrapper: {
-    position: 'relative',
-    height: 30,
+    height: 29,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-
-  navIcon: {
-    fontSize: 26,
-    color: '#344054',
-  },
-
-  navIconActive: {
-    color: '#008A38',
+    position: 'relative',
   },
 
   navLabel: {
@@ -1317,8 +1305,8 @@ const styles = StyleSheet.create({
 
   navBadge: {
     position: 'absolute',
-    top: -5,
-    right: -11,
+    top: -7,
+    right: -12,
     width: 20,
     height: 20,
     borderRadius: 10,
@@ -1329,21 +1317,21 @@ const styles = StyleSheet.create({
 
   navBadgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
   },
 
-  centerNavWrapper: {
+  centerWrapper: {
     width: 75,
-    height: 95,
+    height: 96,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    marginTop: -35,
+    marginTop: -34,
   },
 
-  centerRideButton: {
-    width: 65,
-    height: 65,
+  centerButton: {
+    width: 66,
+    height: 66,
     borderRadius: 33,
     backgroundColor: '#008A38',
     borderWidth: 5,
@@ -1351,7 +1339,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
 
-    shadowColor: '#000000',
+    shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 8,
     shadowOffset: {
@@ -1359,14 +1347,10 @@ const styles = StyleSheet.create({
       height: 3,
     },
 
-    elevation: 6,
+    elevation: 7,
   },
 
-  centerRideIcon: {
-    fontSize: 28,
-  },
-
-  centerRideLabel: {
+  centerLabel: {
     fontSize: 11,
     color: '#344054',
     marginTop: 4,
