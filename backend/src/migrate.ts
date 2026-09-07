@@ -1,15 +1,11 @@
 import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { db } from "./config/database.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const migrationsDirectory = path.resolve(
-  __dirname,
-  "../database/migrations"
+  process.cwd(),
+  "database/migrations"
 );
 
 async function runMigrations() {

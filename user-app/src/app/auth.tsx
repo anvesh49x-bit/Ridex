@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -14,22 +14,56 @@ import {
   signInWithPhoneNumber,
 } from '@react-native-firebase/auth';
 
+// RIDEX backend running on your PC.
+// Your phone and PC are connected to the same Wi-Fi network.
+const API_BASE_URL = 'http://10.134.158.132:3000';
+
 export default function AuthScreen() {
   const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otp, setOtp] = useState([
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+  ]);
+
   const [otpSent, setOtpSent] = useState(false);
   const [error, setError] = useState('');
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  
-const [confirmation, setConfirmation] =
-  useState<any>(null);
-  const [resendSeconds, setResendSeconds] = useState(30);
+  const [confirmation, setConfirmation] =
+    useState<any>(null);
 
-  const otpRefs = useRef<(TextInput | null)[]>([]);
-  const resendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [resendSeconds, setResendSeconds] =
+    useState(30);
 
+  const otpRefs = useRef<(TextInput | null)[]>(
+    []
+  );
+
+  const resendTimerRef =
+    useRef<ReturnType<typeof setInterval> | null>(
+      null
+    );
+
+  /*
+   * Clean up resend timer when screen is removed.
+   */
+  useEffect(() => {
+    return () => {
+      if (resendTimerRef.current) {
+        clearInterval(resendTimerRef.current);
+        resendTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  /*
+   * Start 30-second resend countdown.
+   */
   const startResendTimer = () => {
     if (resendTimerRef.current) {
       clearInterval(resendTimerRef.current);
@@ -41,7 +75,10 @@ const [confirmation, setConfirmation] =
       setResendSeconds((current) => {
         if (current <= 1) {
           if (resendTimerRef.current) {
-            clearInterval(resendTimerRef.current);
+            clearInterval(
+              resendTimerRef.current
+            );
+
             resendTimerRef.current = null;
           }
 
@@ -53,7 +90,12 @@ const [confirmation, setConfirmation] =
     }, 1000);
   };
 
-  const getFirebaseErrorMessage = (errorCode: string) => {
+  /*
+   * Convert Firebase errors into simple user-friendly messages.
+   */
+  const getFirebaseErrorMessage = (
+    errorCode: string
+  ) => {
     switch (errorCode) {
       case 'auth/invalid-phone-number':
         return 'Please enter a valid mobile number.';
@@ -81,9 +123,14 @@ const [confirmation, setConfirmation] =
     }
   };
 
+  /*
+   * Send Firebase Phone OTP.
+   */
   const sendOtp = async () => {
     if (phone.length !== 10) {
-      setError('Enter a valid 10-digit mobile number.');
+      setError(
+        'Enter a valid 10-digit mobile number.'
+      );
       return;
     }
 
@@ -93,21 +140,43 @@ const [confirmation, setConfirmation] =
     try {
       const auth = getAuth();
 
-      const confirmationResult = await signInWithPhoneNumber(
-        auth,
+      console.log(
+        'Sending Firebase OTP to:',
         `+91${phone}`
       );
 
+      const confirmationResult =
+        await signInWithPhoneNumber(
+          auth,
+          `+91${phone}`
+        );
+
       setConfirmation(confirmationResult);
       setOtpSent(true);
-      setOtp(['', '', '', '', '', '']);
+
+      setOtp([
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+      ]);
+
       startResendTimer();
 
       setTimeout(() => {
         otpRefs.current[0]?.focus();
       }, 150);
+
+      console.log(
+        'Firebase OTP sent successfully'
+      );
     } catch (error) {
-      console.error('Firebase send OTP error:', error);
+      console.error(
+        'Firebase send OTP error:',
+        error
+      );
 
       const firebaseError = error as {
         code?: string;
@@ -124,6 +193,9 @@ const [confirmation, setConfirmation] =
     }
   };
 
+  /*
+   * Handle individual OTP boxes.
+   */
   const handleOtpChange = (
     value: string,
     index: number
@@ -133,34 +205,53 @@ const [confirmation, setConfirmation] =
       .slice(-1);
 
     const nextOtp = [...otp];
+
     nextOtp[index] = digits;
 
     setOtp(nextOtp);
     setError('');
 
-    if (digits && index < 5) {
-      otpRefs.current[index + 1]?.focus();
+    if (
+      digits &&
+      index < 5
+    ) {
+      otpRefs.current[
+        index + 1
+      ]?.focus();
     }
   };
 
+  /*
+   * Move backwards when pressing backspace.
+   */
   const handleOtpKeyPress = (
     e: any,
     index: number
   ) => {
     if (
-      e.nativeEvent.key === 'Backspace' &&
+      e.nativeEvent.key ===
+        'Backspace' &&
       !otp[index] &&
       index > 0
     ) {
-      otpRefs.current[index - 1]?.focus();
+      otpRefs.current[
+        index - 1
+      ]?.focus();
     }
   };
 
+  /*
+   * Verify OTP with Firebase,
+   * then authenticate with RIDEX backend.
+   */
   const verifyOtp = async () => {
-    const enteredOtp = otp.join('');
+    const enteredOtp =
+      otp.join('');
 
     if (enteredOtp.length !== 6) {
-      setError('Enter the 6-digit OTP.');
+      setError(
+        'Enter the 6-digit OTP.'
+      );
       return;
     }
 
@@ -175,37 +266,148 @@ const [confirmation, setConfirmation] =
     setLoading(true);
 
     try {
-      const userCredential =
-        await confirmation.confirm(enteredOtp);
+      /*
+       * STEP 1
+       * Verify OTP with Firebase.
+       */
+      console.log(
+        'Verifying Firebase OTP...'
+      );
 
-      const firebaseUser = userCredential.user;
+      const userCredential =
+        await confirmation.confirm(
+          enteredOtp
+        );
+
+      const firebaseUser =
+        userCredential.user;
 
       console.log(
         'Firebase authentication successful:',
         firebaseUser.uid
       );
 
+      /*
+       * STEP 2
+       * Get Firebase ID token.
+       *
+       * This token proves to our backend
+       * that Firebase has authenticated this user.
+       */
+      const idToken =
+        await firebaseUser.getIdToken();
+
+      console.log(
+        'Firebase ID token received'
+      );
+
+      /*
+       * STEP 3
+       * Send Firebase token to RIDEX backend.
+       */
+      console.log(
+        'Connecting to RIDEX backend...'
+      );
+
+      const response =
+        await fetch(
+          `${API_BASE_URL}/api/auth/me`,
+          {
+            method: 'GET',
+
+            headers: {
+              Authorization:
+                `Bearer ${idToken}`,
+
+              'Content-Type':
+                'application/json',
+            },
+          }
+        );
+
+      /*
+       * STEP 4
+       * Read backend response.
+       */
+      const data =
+        await response.json();
+
+      console.log(
+        'RIDEX backend response:',
+        data
+      );
+
+      /*
+       * Backend rejected the authentication.
+       */
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            'Unable to authenticate with RIDEX backend.'
+        );
+      }
+
+      /*
+       * STEP 5
+       * Backend successfully found or created
+       * the RIDEX profile.
+       */
+      console.log(
+        'RIDEX profile loaded successfully:',
+        data.user
+      );
+
+      /*
+       * STEP 6
+       * User is now fully authenticated
+       * with both Firebase and RIDEX.
+       */
       router.replace('/home');
     } catch (error) {
-      console.error('Firebase verify OTP error:', error);
-
-      const firebaseError = error as {
-        code?: string;
-        message?: string;
-      };
-
-      setError(
-        getFirebaseErrorMessage(
-          firebaseError.code || ''
-        )
+      console.error(
+        'Firebase/RIDEX authentication error:',
+        error
       );
+
+      const firebaseError =
+        error as {
+          code?: string;
+          message?: string;
+        };
+
+      /*
+       * Firebase errors.
+       */
+      if (
+        firebaseError.code
+      ) {
+        setError(
+          getFirebaseErrorMessage(
+            firebaseError.code
+          )
+        );
+      } else {
+        /*
+         * Backend/network errors.
+         */
+        setError(
+          firebaseError.message ||
+            'Unable to connect to RIDEX. Please try again.'
+        );
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  /*
+   * Resend OTP.
+   */
   const resendOtp = async () => {
-    if (resendSeconds > 0 || loading) {
+    if (
+      resendSeconds > 0 ||
+      loading
+    ) {
       return;
     }
 
@@ -213,11 +415,16 @@ const [confirmation, setConfirmation] =
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-
+    <SafeAreaView
+      style={styles.safeArea}
+    >
+      <View
+        style={styles.container}
+      >
         {/* LOGO */}
-        <View style={styles.logoArea}>
+        <View
+          style={styles.logoArea}
+        >
           <Image
             source={require('../../assets/images/ridex-logo.png')}
             style={styles.logo}
@@ -226,29 +433,45 @@ const [confirmation, setConfirmation] =
         </View>
 
         {/* HERO TEXT */}
-        <View style={styles.hero}>
-          <Text style={styles.heading}>
+        <View
+          style={styles.hero}
+        >
+          <Text
+            style={styles.heading}
+          >
             Your ride,
           </Text>
 
-          <Text style={styles.headingGreen}>
+          <Text
+            style={styles.headingGreen}
+          >
             your way
           </Text>
 
-          <Text style={styles.description}>
-            Affordable rides, trusted drivers,{'\n'}
+          <Text
+            style={styles.description}
+          >
+            Affordable rides, trusted drivers,
+            {'\n'}
             anytime anywhere.
           </Text>
         </View>
 
         {/* PHONE */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
+        <View
+          style={styles.section}
+        >
+          <Text
+            style={styles.sectionTitle}
+          >
             Mobile number
           </Text>
 
-          <Text style={styles.sectionSubtitle}>
-            We'll send you an OTP to verify your number
+          <Text
+            style={styles.sectionSubtitle}
+          >
+            We'll send you an OTP to verify
+            your number
           </Text>
 
           <View
@@ -260,58 +483,101 @@ const [confirmation, setConfirmation] =
                 styles.phoneFieldDisabled,
             ]}
           >
-            <View style={styles.country}>
-              <Text style={styles.flag}>
+            <View
+              style={styles.country}
+            >
+              <Text
+                style={styles.flag}
+              >
                 🇮🇳
               </Text>
 
-              <Text style={styles.countryCode}>
+              <Text
+                style={styles.countryCode}
+              >
                 +91
               </Text>
 
-              <Text style={styles.chevron}>
+              <Text
+                style={styles.chevron}
+              >
                 ˅
               </Text>
             </View>
 
-            <View style={styles.verticalLine} />
+            <View
+              style={
+                styles.verticalLine
+              }
+            />
 
             <TextInput
               value={phone}
-              onChangeText={(text) => {
+              onChangeText={(
+                text
+              ) => {
                 setPhone(
                   text
-                    .replace(/\D/g, '')
-                    .slice(0, 10)
+                    .replace(
+                      /\D/g,
+                      ''
+                    )
+                    .slice(
+                      0,
+                      10
+                    )
                 );
+
                 setError('');
               }}
               onFocus={() =>
-                setPhoneFocused(true)
+                setPhoneFocused(
+                  true
+                )
               }
               onBlur={() =>
-                setPhoneFocused(false)
+                setPhoneFocused(
+                  false
+                )
               }
               placeholder="Enter mobile number"
               placeholderTextColor="#A0A6B0"
               keyboardType="phone-pad"
               maxLength={10}
-              editable={!otpSent && !loading}
-              style={styles.phoneInput}
+              editable={
+                !otpSent &&
+                !loading
+              }
+              style={
+                styles.phoneInput
+              }
             />
           </View>
         </View>
 
         {/* OTP */}
-        <View style={styles.otpSection}>
-
-          <View style={styles.otpTitleRow}>
+        <View
+          style={styles.otpSection}
+        >
+          <View
+            style={
+              styles.otpTitleRow
+            }
+          >
             <View>
-              <Text style={styles.sectionTitle}>
+              <Text
+                style={
+                  styles.sectionTitle
+                }
+              >
                 Verification code
               </Text>
 
-              <Text style={styles.sectionSubtitle}>
+              <Text
+                style={
+                  styles.sectionSubtitle
+                }
+              >
                 {otpSent
                   ? 'Enter the 6-digit code we sent you'
                   : 'OTP will appear here after you continue'}
@@ -319,69 +585,98 @@ const [confirmation, setConfirmation] =
             </View>
 
             {otpSent && (
-              <Text style={styles.timer}>
-                {resendSeconds > 0
+              <Text
+                style={styles.timer}
+              >
+                {resendSeconds >
+                0
                   ? `00:${String(
                       resendSeconds
-                    ).padStart(2, '0')}`
+                    ).padStart(
+                      2,
+                      '0'
+                    )}`
                   : 'Ready'}
               </Text>
             )}
           </View>
 
-          <View style={styles.otpRow}>
-            {otp.map((digit, index) => (
-              <TextInput
-                key={index}
-                ref={(ref) => {
-                  otpRefs.current[index] = ref;
-                }}
-                value={digit}
-                onChangeText={(value) =>
-                  handleOtpChange(
-                    value,
-                    index
-                  )
-                }
-                onKeyPress={(e) =>
-                  handleOtpKeyPress(
-                    e,
-                    index
-                  )
-                }
-                keyboardType="number-pad"
-                maxLength={1}
-                editable={otpSent && !loading}
-                textAlign="center"
-                selectTextOnFocus
-                style={[
-                  styles.otpBox,
-                  !otpSent &&
-                    styles.otpBoxInactive,
-                  digit &&
-                    styles.otpBoxActive,
-                ]}
-              />
-            ))}
+          <View
+            style={styles.otpRow}
+          >
+            {otp.map(
+              (
+                digit,
+                index
+              ) => (
+                <TextInput
+                  key={index}
+                  ref={(ref) => {
+                    otpRefs.current[
+                      index
+                    ] = ref;
+                  }}
+                  value={digit}
+                  onChangeText={(
+                    value
+                  ) =>
+                    handleOtpChange(
+                      value,
+                      index
+                    )
+                  }
+                  onKeyPress={(
+                    e
+                  ) =>
+                    handleOtpKeyPress(
+                      e,
+                      index
+                    )
+                  }
+                  keyboardType="number-pad"
+                  maxLength={1}
+                  editable={
+                    otpSent &&
+                    !loading
+                  }
+                  textAlign="center"
+                  selectTextOnFocus
+                  style={[
+                    styles.otpBox,
+                    !otpSent &&
+                      styles.otpBoxInactive,
+                    digit &&
+                      styles.otpBoxActive,
+                  ]}
+                />
+              )
+            )}
           </View>
 
           {otpSent && (
             <Pressable
-              onPress={resendOtp}
+              onPress={
+                resendOtp
+              }
               disabled={
-                resendSeconds > 0 ||
+                resendSeconds >
+                  0 ||
                 loading
               }
-              style={styles.resendButton}
+              style={
+                styles.resendButton
+              }
             >
               <Text
                 style={[
                   styles.resendText,
-                  resendSeconds > 0 &&
+                  resendSeconds >
+                    0 &&
                     styles.resendTextDisabled,
                 ]}
               >
-                {resendSeconds > 0
+                {resendSeconds >
+                0
                   ? `Resend OTP in ${resendSeconds}s`
                   : 'Resend OTP'}
               </Text>
@@ -391,22 +686,29 @@ const [confirmation, setConfirmation] =
 
         {/* ERROR */}
         {error ? (
-          <Text style={styles.error}>
+          <Text
+            style={styles.error}
+          >
             {error}
           </Text>
         ) : null}
 
         {/* BOTTOM */}
-        <View style={styles.bottom}>
-
+        <View
+          style={styles.bottom}
+        >
           <Pressable
             onPress={
               otpSent
                 ? verifyOtp
                 : sendOtp
             }
-            disabled={loading}
-            style={({ pressed }) => [
+            disabled={
+              loading
+            }
+            style={({
+              pressed,
+            }) => [
               styles.button,
               pressed &&
                 styles.buttonPressed,
@@ -414,7 +716,11 @@ const [confirmation, setConfirmation] =
                 styles.buttonDisabled,
             ]}
           >
-            <Text style={styles.buttonText}>
+            <Text
+              style={
+                styles.buttonText
+              }
+            >
               {loading
                 ? 'Please wait...'
                 : otpSent
@@ -423,27 +729,45 @@ const [confirmation, setConfirmation] =
             </Text>
 
             {!loading && (
-              <Text style={styles.buttonArrow}>
+              <Text
+                style={
+                  styles.buttonArrow
+                }
+              >
                 →
               </Text>
             )}
           </Pressable>
 
-          <View style={styles.termsArea}>
-            <Text style={styles.terms}>
+          <View
+            style={
+              styles.termsArea
+            }
+          >
+            <Text
+              style={
+                styles.terms
+              }
+            >
               By continuing, you agree to our{' '}
-              <Text style={styles.termsBold}>
+              <Text
+                style={
+                  styles.termsBold
+                }
+              >
                 Terms of Service
               </Text>{' '}
               and{' '}
-              <Text style={styles.termsBold}>
+              <Text
+                style={
+                  styles.termsBold
+                }
+              >
                 Privacy Policy
               </Text>
             </Text>
           </View>
-
         </View>
-
       </View>
     </SafeAreaView>
   );

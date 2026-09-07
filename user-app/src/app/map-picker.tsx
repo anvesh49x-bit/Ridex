@@ -18,7 +18,6 @@ import {
   useMap,
 } from '@vis.gl/react-google-maps';
 
-
 const GOOGLE_API_KEY =
   process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
@@ -27,34 +26,15 @@ const BLACK = '#111820';
 const GRAY = '#737C88';
 const WHITE = '#FFFFFF';
 
-
 type Coordinates = {
   lat: number;
   lng: number;
 };
 
-
-/*
-|--------------------------------------------------------------------------
-| DEFAULT LOCATION
-|--------------------------------------------------------------------------
-|
-| Used only until the browser/device gives us the real location.
-| Vijayawada is our temporary development center.
-|
-*/
-
 const DEFAULT_LOCATION: Coordinates = {
   lat: 16.5062,
   lng: 80.6480,
 };
-
-
-/*
-|--------------------------------------------------------------------------
-| MAP CAMERA
-|--------------------------------------------------------------------------
-*/
 
 function MapCamera({
   position,
@@ -78,71 +58,53 @@ function MapCamera({
   return null;
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| MAP PICKER
-|--------------------------------------------------------------------------
-*/
-
 export default function MapPicker() {
-
   const router = useRouter();
 
   const params =
     useLocalSearchParams<{
       type?: string;
-
       pickupName?: string;
       pickupAddress?: string;
-
       pickupLat?: string;
       pickupLng?: string;
     }>();
-
 
   const type =
     params.type === 'drop'
       ? 'drop'
       : 'pickup';
 
-
   const [position, setPosition] =
     useState<Coordinates>(
       DEFAULT_LOCATION,
     );
-
 
   const [address, setAddress] =
     useState(
       'Move the map to choose a location',
     );
 
-
   const [loading, setLoading] =
     useState(false);
-
 
   const [locationLoading, setLocationLoading] =
     useState(true);
 
-
   /*
   |--------------------------------------------------------------------------
-  | GET ADDRESS FROM COORDINATES
+  | REVERSE GEOCODING
   |--------------------------------------------------------------------------
   */
 
   const reverseGeocode = async (
     coordinates: Coordinates,
   ) => {
-
     if (!GOOGLE_API_KEY) {
       return;
     }
 
     try {
-
       setLoading(true);
 
       const response =
@@ -156,39 +118,29 @@ export default function MapPicker() {
           },
         );
 
-
       if (!response.ok) {
         throw new Error(
           'Geocoding failed',
         );
       }
 
-
       const data =
         await response.json();
-
 
       const formattedAddress =
         data.results?.[0]
           ?.formattedAddress;
 
-
       if (formattedAddress) {
-
         setAddress(
           formattedAddress,
         );
-
       } else {
-
         setAddress(
           'Selected location',
         );
-
       }
-
     } catch (error) {
-
       console.error(
         'Reverse geocoding error:',
         error,
@@ -197,115 +149,86 @@ export default function MapPicker() {
       setAddress(
         'Selected location',
       );
-
     } finally {
-
       setLoading(false);
-
     }
-
   };
-
 
   /*
   |--------------------------------------------------------------------------
   | GET CURRENT LOCATION
   |--------------------------------------------------------------------------
+  |
+  | This is intentionally kept as the WEB implementation.
+  | Android/iOS use map-picker.native.tsx instead.
+  |
   */
 
   useEffect(() => {
-
     if (
       typeof navigator ===
-      'undefined' ||
+        'undefined' ||
       !navigator.geolocation
     ) {
-
       setLocationLoading(false);
-
       return;
-
     }
 
-
     navigator.geolocation.getCurrentPosition(
-
       (currentPosition) => {
-
         const coordinates = {
-
           lat:
             currentPosition.coords.latitude,
-
           lng:
             currentPosition.coords.longitude,
-
         };
-
 
         setPosition(
           coordinates,
         );
 
-
         reverseGeocode(
           coordinates,
         );
 
-
         setLocationLoading(false);
-
       },
 
       (error) => {
-
         console.log(
           'GPS unavailable:',
           error.message,
         );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Keep Vijayawada as development fallback.
-        |--------------------------------------------------------------------------
-        */
 
         reverseGeocode(
           DEFAULT_LOCATION,
         );
 
         setLocationLoading(false);
-
       },
 
       {
         enableHighAccuracy: true,
-
         timeout: 10000,
-
         maximumAge: 30000,
       },
     );
-
   }, []);
-
 
   /*
   |--------------------------------------------------------------------------
-  | CLICK MAP
+  | MAP CLICK
   |--------------------------------------------------------------------------
   */
 
   const handleMapClick = (
     event: any,
   ) => {
-
     const latitude =
       event.detail.latLng?.lat;
 
     const longitude =
       event.detail.latLng?.lng;
-
 
     if (
       typeof latitude !==
@@ -313,32 +236,22 @@ export default function MapPicker() {
       typeof longitude !==
         'number'
     ) {
-
       return;
-
     }
 
-
     const coordinates = {
-
       lat: latitude,
-
       lng: longitude,
-
     };
-
 
     setPosition(
       coordinates,
     );
 
-
     reverseGeocode(
       coordinates,
     );
-
   };
-
 
   /*
   |--------------------------------------------------------------------------
@@ -347,73 +260,53 @@ export default function MapPicker() {
   */
 
   const useCurrentLocation = () => {
-
     if (
       typeof navigator ===
         'undefined' ||
       !navigator.geolocation
     ) {
-
       return;
-
     }
-
 
     setLocationLoading(
       true,
     );
 
-
     navigator.geolocation.getCurrentPosition(
-
       (currentPosition) => {
-
         const coordinates = {
-
           lat:
             currentPosition.coords.latitude,
-
           lng:
             currentPosition.coords.longitude,
-
         };
-
 
         setPosition(
           coordinates,
         );
 
-
         reverseGeocode(
           coordinates,
         );
 
-
         setLocationLoading(
           false,
         );
-
       },
 
       () => {
-
         setLocationLoading(
           false,
         );
-
       },
 
       {
         enableHighAccuracy: true,
-
         timeout: 10000,
-
         maximumAge: 30000,
       },
     );
-
   };
-
 
   /*
   |--------------------------------------------------------------------------
@@ -422,27 +315,16 @@ export default function MapPicker() {
   */
 
   const confirmLocation = () => {
-
-    /*
-    |--------------------------------------------------------------------------
-    | PICKUP
-    |--------------------------------------------------------------------------
-    */
-
     if (
       type ===
       'pickup'
     ) {
-
       router.replace({
-
         pathname:
           '/location-picker' as any,
 
         params: {
-
-          type:
-            'drop',
+          type: 'drop',
 
           pickupName:
             'Selected pickup',
@@ -459,29 +341,17 @@ export default function MapPicker() {
             String(
               position.lng,
             ),
-
         },
-
       });
 
       return;
-
     }
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | DESTINATION
-    |--------------------------------------------------------------------------
-    */
-
     router.replace({
-
       pathname:
         '/home' as any,
 
       params: {
-
         pickupName:
           params.pickupName ||
           'Current location',
@@ -513,13 +383,9 @@ export default function MapPicker() {
           String(
             position.lng,
           ),
-
       },
-
     });
-
   };
-
 
   /*
   |--------------------------------------------------------------------------
@@ -528,17 +394,15 @@ export default function MapPicker() {
   */
 
   if (!GOOGLE_API_KEY) {
-
     return (
-
       <SafeAreaView
         style={styles.safeArea}
       >
-
         <View
-          style={styles.errorContainer}
+          style={
+            styles.errorContainer
+          }
         >
-
           <Ionicons
             name="warning-outline"
             size={40}
@@ -546,26 +410,28 @@ export default function MapPicker() {
           />
 
           <Text
-            style={styles.errorTitle}
+            style={
+              styles.errorTitle
+            }
           >
             Google Maps API key missing
           </Text>
 
           <Text
-            style={styles.errorText}
+            style={
+              styles.errorText
+            }
           >
-            Check EXPO_PUBLIC_GOOGLE_PLACES_API_KEY
+            Check
+            {' '}
+            EXPO_PUBLIC_GOOGLE_PLACES_API_KEY
+            {' '}
             in your .env.local file.
           </Text>
-
         </View>
-
       </SafeAreaView>
-
     );
-
   }
-
 
   /*
   |--------------------------------------------------------------------------
@@ -574,11 +440,9 @@ export default function MapPicker() {
   */
 
   return (
-
     <SafeAreaView
       style={styles.safeArea}
     >
-
       <View
         style={styles.container}
       >
@@ -588,22 +452,18 @@ export default function MapPicker() {
         <View
           style={styles.header}
         >
-
           <Pressable
             style={styles.backButton}
             onPress={() =>
               router.back()
             }
           >
-
             <Ionicons
               name="arrow-back"
               size={25}
               color={BLACK}
             />
-
           </Pressable>
-
 
           <Text
             style={styles.headerTitle}
@@ -613,88 +473,67 @@ export default function MapPicker() {
               : 'Choose destination'}
           </Text>
 
-
           <View
             style={styles.headerSpacer}
           />
-
         </View>
-
 
         {/* MAP */}
 
         <View
           style={styles.mapContainer}
         >
-
           <APIProvider
             apiKey={
               GOOGLE_API_KEY
             }
           >
-
             <Map
               defaultZoom={15}
-
               defaultCenter={
                 DEFAULT_LOCATION
               }
-
               gestureHandling="greedy"
-
-              disableDefaultUI={true}
-
+              disableDefaultUI
               clickableIcons={false}
-
               onClick={
                 handleMapClick
               }
-
               mapId="RIDEX_MAP"
             >
-
               <MapCamera
                 position={
                   position
                 }
               />
 
-
               <AdvancedMarker
                 position={
                   position
                 }
               >
-
                 <View
                   style={
                     styles.marker
                   }
                 >
-
                   <Ionicons
                     name="location"
                     size={40}
                     color={GREEN}
                   />
-
                 </View>
-
               </AdvancedMarker>
-
             </Map>
-
           </APIProvider>
 
-
-          {/* SEARCH / INSTRUCTION */}
+          {/* INSTRUCTION */}
 
           <View
             style={
               styles.instruction
             }
           >
-
             <Text
               style={
                 styles.instructionText
@@ -703,9 +542,7 @@ export default function MapPicker() {
               Tap anywhere on the map
               to choose a location
             </Text>
-
           </View>
-
 
           {/* CURRENT LOCATION */}
 
@@ -717,28 +554,20 @@ export default function MapPicker() {
               useCurrentLocation
             }
           >
-
             {locationLoading ? (
-
               <ActivityIndicator
                 size="small"
                 color={GREEN}
               />
-
             ) : (
-
               <Ionicons
                 name="locate"
                 size={24}
                 color={BLACK}
               />
-
             )}
-
           </Pressable>
-
         </View>
-
 
         {/* BOTTOM PANEL */}
 
@@ -747,7 +576,6 @@ export default function MapPicker() {
             styles.bottomPanel
           }
         >
-
           <Text
             style={
               styles.panelTitle
@@ -756,34 +584,28 @@ export default function MapPicker() {
             Confirm location
           </Text>
 
-
           <View
             style={
               styles.addressCard
             }
           >
-
             <View
               style={
                 styles.addressIcon
               }
             >
-
               <Ionicons
                 name="location"
                 size={22}
                 color={GREEN}
               />
-
             </View>
-
 
             <View
               style={
                 styles.addressContent
               }
             >
-
               <Text
                 style={
                   styles.addressTitle
@@ -794,22 +616,16 @@ export default function MapPicker() {
                   : 'Selected location'}
               </Text>
 
-
               <Text
                 style={
                   styles.addressText
                 }
-                numberOfLines={
-                  2
-                }
+                numberOfLines={2}
               >
                 {address}
               </Text>
-
             </View>
-
           </View>
-
 
           <Pressable
             style={
@@ -819,7 +635,6 @@ export default function MapPicker() {
               confirmLocation
             }
           >
-
             <Text
               style={
                 styles.confirmText
@@ -828,25 +643,17 @@ export default function MapPicker() {
               Confirm this location
             </Text>
 
-
             <Ionicons
               name="arrow-forward"
               size={22}
               color={WHITE}
             />
-
           </Pressable>
-
         </View>
-
       </View>
-
     </SafeAreaView>
-
   );
-
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -855,7 +662,6 @@ export default function MapPicker() {
 */
 
 const styles = StyleSheet.create({
-
   safeArea: {
     flex: 1,
     backgroundColor: WHITE,
@@ -866,37 +672,26 @@ const styles = StyleSheet.create({
     backgroundColor: WHITE,
   },
 
-
   header: {
     height: 62,
-
     paddingHorizontal: 20,
-
     flexDirection: 'row',
-
     alignItems: 'center',
-
     justifyContent: 'space-between',
   },
 
   backButton: {
     width: 42,
     height: 42,
-
     alignItems: 'center',
-
     justifyContent: 'center',
   },
 
   headerTitle: {
     flex: 1,
-
     textAlign: 'center',
-
     fontSize: 19,
-
     fontWeight: '800',
-
     color: BLACK,
   },
 
@@ -904,211 +699,137 @@ const styles = StyleSheet.create({
     width: 42,
   },
 
-
   mapContainer: {
     flex: 1,
-
     position: 'relative',
   },
 
-
   instruction: {
     position: 'absolute',
-
     top: 16,
-
     left: 20,
-
     right: 20,
-
     alignItems: 'center',
   },
 
   instructionText: {
     backgroundColor:
       'rgba(255,255,255,0.96)',
-
     paddingHorizontal: 16,
-
     paddingVertical: 9,
-
     borderRadius: 20,
-
     fontSize: 12,
-
     fontWeight: '700',
-
     color: BLACK,
   },
 
-
   marker: {
     alignItems: 'center',
-
     justifyContent: 'center',
   },
-
 
   currentButton: {
     position: 'absolute',
-
     right: 18,
-
     bottom: 22,
-
     width: 52,
-
     height: 52,
-
     borderRadius: 16,
-
     backgroundColor: WHITE,
-
     alignItems: 'center',
-
     justifyContent: 'center',
-
     elevation: 6,
   },
 
-
   bottomPanel: {
     paddingHorizontal: 20,
-
     paddingTop: 18,
-
     paddingBottom: 18,
-
     backgroundColor: WHITE,
-
     borderTopLeftRadius: 24,
-
     borderTopRightRadius: 24,
-
     elevation: 12,
   },
 
   panelTitle: {
     fontSize: 19,
-
     fontWeight: '800',
-
     color: BLACK,
   },
 
-
   addressCard: {
     minHeight: 70,
-
     marginTop: 12,
-
     paddingHorizontal: 12,
-
     borderRadius: 15,
-
     backgroundColor: '#F4F7F6',
-
     flexDirection: 'row',
-
     alignItems: 'center',
   },
 
   addressIcon: {
     width: 43,
-
     height: 43,
-
     borderRadius: 22,
-
     backgroundColor: WHITE,
-
     alignItems: 'center',
-
     justifyContent: 'center',
   },
 
   addressContent: {
     flex: 1,
-
     marginLeft: 11,
   },
 
   addressTitle: {
     fontSize: 13,
-
     fontWeight: '800',
-
     color: BLACK,
   },
 
   addressText: {
     marginTop: 3,
-
     fontSize: 12,
-
     lineHeight: 17,
-
     color: GRAY,
   },
 
-
   confirmButton: {
     height: 56,
-
     marginTop: 12,
-
     borderRadius: 16,
-
     backgroundColor: GREEN,
-
     flexDirection: 'row',
-
     alignItems: 'center',
-
     justifyContent: 'center',
   },
 
   confirmText: {
     marginRight: 10,
-
     fontSize: 16,
-
     fontWeight: '800',
-
     color: WHITE,
   },
 
-
   errorContainer: {
     flex: 1,
-
     alignItems: 'center',
-
     justifyContent: 'center',
-
     padding: 30,
   },
 
   errorTitle: {
     marginTop: 15,
-
     fontSize: 19,
-
     fontWeight: '800',
-
     color: BLACK,
-
     textAlign: 'center',
   },
 
   errorText: {
     marginTop: 8,
-
     fontSize: 14,
-
     color: GRAY,
-
     textAlign: 'center',
   },
-
 });

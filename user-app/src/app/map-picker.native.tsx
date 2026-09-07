@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import {
+  ActivityIndicator,
+  Alert,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -9,7 +11,6 @@ import {
 } from 'react-native';
 
 import MapView, {
-  Marker,
   Region,
 } from 'react-native-maps';
 
@@ -19,6 +20,8 @@ import {
 } from 'expo-router';
 
 import { Ionicons } from '@expo/vector-icons';
+
+import * as Location from 'expo-location';
 
 
 /*
@@ -43,6 +46,25 @@ const BLACK = '#111820';
 const WHITE = '#FFFFFF';
 
 const GRAY = '#737C88';
+
+
+/*
+|--------------------------------------------------------------------------
+| DEFAULT REGION
+|--------------------------------------------------------------------------
+|
+| Vijayawada is only the fallback location.
+| Real device GPS will replace this when available.
+|
+*/
+
+const DEFAULT_REGION: Region = {
+  latitude: 16.5062,
+  longitude: 80.6480,
+
+  latitudeDelta: 0.04,
+  longitudeDelta: 0.04,
+};
 
 
 /*
@@ -82,23 +104,175 @@ export default function MapPicker() {
 
   /*
   |--------------------------------------------------------------------------
-  | DEFAULT MAP POSITION
+  | MAP REGION
   |--------------------------------------------------------------------------
-  |
-  | Temporary default around Vijayawada region.
-  |
-  | Real current GPS will replace this later.
-  |
   */
 
   const [region, setRegion] =
-    useState<Region>({
-      latitude: 16.5062,
-      longitude: 80.6480,
+    useState<Region>(
+      DEFAULT_REGION,
+    );
 
-      latitudeDelta: 0.04,
-      longitudeDelta: 0.04,
-    });
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOCATION STATE
+  |--------------------------------------------------------------------------
+  */
+
+  const [locationLoading, setLocationLoading] =
+    useState(true);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | GET DEVICE LOCATION
+  |--------------------------------------------------------------------------
+  */
+
+  const getCurrentLocation =
+    async (
+      showErrorAlert = true,
+    ) => {
+
+      try {
+
+        setLocationLoading(true);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | REQUEST LOCATION PERMISSION
+        |--------------------------------------------------------------------------
+        */
+
+        const {
+          status,
+        } =
+          await Location.requestForegroundPermissionsAsync();
+
+
+        if (
+          status !==
+          Location.PermissionStatus.GRANTED
+        ) {
+
+          console.log(
+            'RIDEX: Location permission denied',
+          );
+
+          if (showErrorAlert) {
+
+            Alert.alert(
+              'Location permission required',
+              'Please allow RIDEX to access your location so we can find your current position.',
+            );
+
+          }
+
+          setLocationLoading(false);
+
+          return;
+
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | GET GPS POSITION
+        |--------------------------------------------------------------------------
+        */
+
+        const currentLocation =
+          await Location.getCurrentPositionAsync({
+            accuracy:
+              Location.Accuracy.High,
+          });
+
+
+        const latitude =
+          currentLocation.coords.latitude;
+
+        const longitude =
+          currentLocation.coords.longitude;
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | UPDATE MAP
+        |--------------------------------------------------------------------------
+        */
+
+        setRegion({
+          latitude,
+          longitude,
+
+          latitudeDelta:
+            0.012,
+
+          longitudeDelta:
+            0.012,
+        });
+
+
+        console.log(
+          'RIDEX: Current GPS location:',
+          latitude,
+          longitude,
+        );
+
+      } catch (error) {
+
+        console.error(
+          'RIDEX: Unable to get current location:',
+          error,
+        );
+
+        if (showErrorAlert) {
+
+          Alert.alert(
+            'Unable to get location',
+            'Please make sure Location is turned on and allow RIDEX to access your location.',
+          );
+
+        }
+
+      } finally {
+
+        setLocationLoading(false);
+
+      }
+
+    };
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | INITIAL GPS LOCATION
+  |--------------------------------------------------------------------------
+  */
+
+  useEffect(() => {
+
+    getCurrentLocation(false);
+
+  }, []);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | CURRENT LOCATION BUTTON
+  |--------------------------------------------------------------------------
+  */
+
+  const useCurrentLocation =
+    async () => {
+
+      await getCurrentLocation(
+        true,
+      );
+
+    };
 
 
   /*
@@ -115,7 +289,10 @@ export default function MapPicker() {
     |--------------------------------------------------------------------------
     */
 
-    if (type === 'pickup') {
+    if (
+      type ===
+      'pickup'
+    ) {
 
       router.replace({
 
@@ -124,7 +301,8 @@ export default function MapPicker() {
 
         params: {
 
-          type: 'drop',
+          type:
+            'drop',
 
           pickupName:
             'Selected pickup',
@@ -147,6 +325,7 @@ export default function MapPicker() {
       });
 
       return;
+
     }
 
 
@@ -158,7 +337,8 @@ export default function MapPicker() {
 
     router.replace({
 
-      pathname: '/home',
+      pathname:
+        '/home',
 
       params: {
 
@@ -203,7 +383,7 @@ export default function MapPicker() {
 
   /*
   |--------------------------------------------------------------------------
-  | HEADER TITLE
+  | TITLE
   |--------------------------------------------------------------------------
   */
 
@@ -278,12 +458,67 @@ export default function MapPicker() {
 
           <MapView
             style={styles.map}
-            initialRegion={region}
+
+            region={
+              region
+            }
+
             onRegionChangeComplete={
               setRegion
             }
-            showsUserLocation
-            showsMyLocationButton={false}
+
+            showsUserLocation={
+              true
+            }
+
+            showsMyLocationButton={
+              false
+            }
+
+            showsCompass={
+              false
+            }
+
+            showsBuildings={
+              false
+            }
+
+            showsIndoors={
+              false
+            }
+
+            toolbarEnabled={
+              false
+            }
+
+            zoomEnabled={
+              true
+            }
+
+            scrollEnabled={
+              true
+            }
+
+            rotateEnabled={
+              false
+            }
+
+            pitchEnabled={
+              false
+            }
+
+            loadingEnabled={
+              true
+            }
+
+            loadingIndicatorColor={
+              GREEN
+            }
+
+            loadingBackgroundColor={
+              WHITE
+            }
+
           />
 
 
@@ -321,7 +556,9 @@ export default function MapPicker() {
           >
 
             <Text
-              style={styles.centerLabelText}
+              style={
+                styles.centerLabelText
+              }
             >
               Move the map to set location
             </Text>
@@ -334,22 +571,33 @@ export default function MapPicker() {
           ============================================================= */}
 
           <Pressable
-            style={styles.locateButton}
-            onPress={() => {
-
-              /*
-               * Real GPS centering will be connected
-               * once expo-location is wired in.
-               */
-
-            }}
+            style={
+              styles.locateButton
+            }
+            onPress={
+              useCurrentLocation
+            }
+            disabled={
+              locationLoading
+            }
           >
 
-            <Ionicons
-              name="locate-outline"
-              size={25}
-              color={BLACK}
-            />
+            {locationLoading ? (
+
+              <ActivityIndicator
+                size="small"
+                color={GREEN}
+              />
+
+            ) : (
+
+              <Ionicons
+                name="locate-outline"
+                size={25}
+                color={BLACK}
+              />
+
+            )}
 
           </Pressable>
 
@@ -361,23 +609,31 @@ export default function MapPicker() {
         ================================================================= */}
 
         <View
-          style={styles.bottomPanel}
+          style={
+            styles.bottomPanel
+          }
         >
 
           <View
-            style={styles.dragHandle}
+            style={
+              styles.dragHandle
+            }
           />
 
 
           <Text
-            style={styles.panelTitle}
+            style={
+              styles.panelTitle
+            }
           >
             Set exact location
           </Text>
 
 
           <Text
-            style={styles.panelSubtitle}
+            style={
+              styles.panelSubtitle
+            }
           >
             Move the map until the pin is
             exactly where you want to be picked
@@ -385,14 +641,20 @@ export default function MapPicker() {
           </Text>
 
 
-          {/* Selected coordinates */}
+          {/* ============================================================
+              LOCATION PREVIEW
+          ============================================================= */}
 
           <View
-            style={styles.locationPreview}
+            style={
+              styles.locationPreview
+            }
           >
 
             <View
-              style={styles.previewIcon}
+              style={
+                styles.previewIcon
+              }
             >
 
               <Ionicons
@@ -405,23 +667,37 @@ export default function MapPicker() {
 
 
             <View
-              style={styles.previewText}
+              style={
+                styles.previewText
+              }
             >
 
               <Text
-                style={styles.previewTitle}
+                style={
+                  styles.previewTitle
+                }
               >
                 Map location
               </Text>
 
 
               <Text
-                style={styles.previewAddress}
+                style={
+                  styles.previewAddress
+                }
                 numberOfLines={1}
               >
-                {region.latitude.toFixed(5)},
+
+                {region.latitude.toFixed(
+                  5,
+                )}
+
                 {' '}
-                {region.longitude.toFixed(5)}
+
+                {region.longitude.toFixed(
+                  5,
+                )}
+
               </Text>
 
             </View>
@@ -429,17 +705,23 @@ export default function MapPicker() {
           </View>
 
 
-          {/* Confirm */}
+          {/* ============================================================
+              CONFIRM BUTTON
+          ============================================================= */}
 
           <Pressable
-            style={styles.confirmButton}
+            style={
+              styles.confirmButton
+            }
             onPress={
               confirmLocation
             }
           >
 
             <Text
-              style={styles.confirmText}
+              style={
+                styles.confirmText
+              }
             >
               Confirm this location
             </Text>
@@ -460,6 +742,7 @@ export default function MapPicker() {
     </SafeAreaView>
 
   );
+
 }
 
 
@@ -478,6 +761,7 @@ const styles = StyleSheet.create({
       WHITE,
   },
 
+
   container: {
     flex: 1,
 
@@ -486,16 +770,22 @@ const styles = StyleSheet.create({
   },
 
 
-  /* HEADER */
+  /*
+  |--------------------------------------------------------------------------
+  | HEADER
+  |--------------------------------------------------------------------------
+  */
 
   header: {
     height: 62,
 
     paddingHorizontal: 20,
 
-    flexDirection: 'row',
+    flexDirection:
+      'row',
 
-    alignItems: 'center',
+    alignItems:
+      'center',
 
     justifyContent:
       'space-between',
@@ -504,292 +794,433 @@ const styles = StyleSheet.create({
       WHITE,
   },
 
+
   backButton: {
     width: 42,
+
     height: 42,
 
-    alignItems: 'center',
+    alignItems:
+      'center',
 
-    justifyContent: 'center',
+    justifyContent:
+      'center',
   },
+
 
   headerTitle: {
     flex: 1,
 
-    textAlign: 'center',
+    textAlign:
+      'center',
 
     fontSize: 19,
 
-    fontWeight: '800',
+    fontWeight:
+      '800',
 
-    color: BLACK,
+    color:
+      BLACK,
   },
+
 
   headerSpacer: {
     width: 42,
   },
 
 
-  /* MAP */
+  /*
+  |--------------------------------------------------------------------------
+  | MAP
+  |--------------------------------------------------------------------------
+  */
 
   mapContainer: {
     flex: 1,
 
-    position: 'relative',
+    position:
+      'relative',
   },
+
 
   map: {
     flex: 1,
   },
 
 
-  /* CENTER PIN */
+  /*
+  |--------------------------------------------------------------------------
+  | CENTER PIN
+  |--------------------------------------------------------------------------
+  */
 
   centerPin: {
-    position: 'absolute',
+    position:
+      'absolute',
 
-    left: '50%',
+    left:
+      '50%',
 
-    top: '50%',
+    top:
+      '50%',
 
-    marginLeft: -20,
+    marginLeft:
+      -20,
 
-    marginTop: -39,
+    marginTop:
+      -39,
 
-    width: 40,
+    width:
+      40,
 
-    height: 50,
+    height:
+      50,
 
-    alignItems: 'center',
+    alignItems:
+      'center',
 
-    justifyContent: 'center',
+    justifyContent:
+      'center',
   },
+
 
   pinHead: {
-    alignItems: 'center',
+    alignItems:
+      'center',
 
-    justifyContent: 'center',
+    justifyContent:
+      'center',
   },
 
 
-  /* LABEL */
+  /*
+  |--------------------------------------------------------------------------
+  | LABEL
+  |--------------------------------------------------------------------------
+  */
 
   centerLabel: {
-    position: 'absolute',
+    position:
+      'absolute',
 
-    top: 20,
+    top:
+      20,
 
-    left: 25,
+    left:
+      25,
 
-    right: 25,
+    right:
+      25,
 
-    alignItems: 'center',
+    alignItems:
+      'center',
   },
+
 
   centerLabelText: {
     backgroundColor:
       'rgba(255,255,255,0.94)',
 
-    paddingHorizontal: 14,
+    paddingHorizontal:
+      14,
 
-    paddingVertical: 8,
+    paddingVertical:
+      8,
 
-    borderRadius: 20,
+    borderRadius:
+      20,
 
-    overflow: 'hidden',
+    overflow:
+      'hidden',
 
-    fontSize: 12,
+    fontSize:
+      12,
 
-    fontWeight: '600',
+    fontWeight:
+      '600',
 
-    color: BLACK,
+    color:
+      BLACK,
   },
 
 
-  /* LOCATE */
+  /*
+  |--------------------------------------------------------------------------
+  | CURRENT LOCATION BUTTON
+  |--------------------------------------------------------------------------
+  */
 
   locateButton: {
-    position: 'absolute',
+    position:
+      'absolute',
 
-    right: 18,
+    right:
+      18,
 
-    bottom: 18,
+    bottom:
+      18,
 
-    width: 50,
+    width:
+      50,
 
-    height: 50,
+    height:
+      50,
 
-    borderRadius: 15,
+    borderRadius:
+      15,
 
     backgroundColor:
       WHITE,
 
-    alignItems: 'center',
+    alignItems:
+      'center',
 
-    justifyContent: 'center',
+    justifyContent:
+      'center',
 
-    elevation: 6,
+    elevation:
+      6,
 
-    shadowColor: '#000',
+    shadowColor:
+      '#000',
 
-    shadowOpacity: 0.15,
+    shadowOpacity:
+      0.15,
 
-    shadowRadius: 8,
+    shadowRadius:
+      8,
 
     shadowOffset: {
-      width: 0,
-      height: 3,
+      width:
+        0,
+
+      height:
+        3,
     },
   },
 
 
-  /* BOTTOM PANEL */
+  /*
+  |--------------------------------------------------------------------------
+  | BOTTOM PANEL
+  |--------------------------------------------------------------------------
+  */
 
   bottomPanel: {
     backgroundColor:
       WHITE,
 
-    paddingHorizontal: 20,
+    paddingHorizontal:
+      20,
 
-    paddingTop: 9,
+    paddingTop:
+      9,
 
-    paddingBottom: 18,
+    paddingBottom:
+      18,
 
-    borderTopLeftRadius: 25,
+    borderTopLeftRadius:
+      25,
 
-    borderTopRightRadius: 25,
+    borderTopRightRadius:
+      25,
 
-    elevation: 12,
+    elevation:
+      12,
 
-    shadowColor: '#000',
+    shadowColor:
+      '#000',
 
-    shadowOpacity: 0.12,
+    shadowOpacity:
+      0.12,
 
-    shadowRadius: 14,
+    shadowRadius:
+      14,
 
     shadowOffset: {
-      width: 0,
-      height: -4,
+      width:
+        0,
+
+      height:
+        -4,
     },
   },
 
+
   dragHandle: {
-    alignSelf: 'center',
+    alignSelf:
+      'center',
 
-    width: 42,
+    width:
+      42,
 
-    height: 4,
+    height:
+      4,
 
-    borderRadius: 2,
+    borderRadius:
+      2,
 
-    backgroundColor: '#D8DDE1',
+    backgroundColor:
+      '#D8DDE1',
 
-    marginBottom: 14,
+    marginBottom:
+      14,
   },
+
 
   panelTitle: {
-    fontSize: 19,
+    fontSize:
+      19,
 
-    fontWeight: '800',
+    fontWeight:
+      '800',
 
-    color: BLACK,
+    color:
+      BLACK,
   },
+
 
   panelSubtitle: {
-    marginTop: 5,
+    marginTop:
+      5,
 
-    fontSize: 13,
+    fontSize:
+      13,
 
-    lineHeight: 19,
+    lineHeight:
+      19,
 
-    color: GRAY,
+    color:
+      GRAY,
   },
 
 
-  /* LOCATION PREVIEW */
+  /*
+  |--------------------------------------------------------------------------
+  | LOCATION PREVIEW
+  |--------------------------------------------------------------------------
+  */
 
   locationPreview: {
-    marginTop: 15,
+    marginTop:
+      15,
 
-    minHeight: 60,
+    minHeight:
+      60,
 
-    borderRadius: 14,
+    borderRadius:
+      14,
 
     backgroundColor:
       '#F4F7F6',
 
-    flexDirection: 'row',
+    flexDirection:
+      'row',
 
-    alignItems: 'center',
+    alignItems:
+      'center',
 
-    paddingHorizontal: 12,
+    paddingHorizontal:
+      12,
   },
 
+
   previewIcon: {
-    width: 40,
+    width:
+      40,
 
-    height: 40,
+    height:
+      40,
 
-    borderRadius: 20,
+    borderRadius:
+      20,
 
     backgroundColor:
       WHITE,
 
-    alignItems: 'center',
+    alignItems:
+      'center',
 
-    justifyContent: 'center',
+    justifyContent:
+      'center',
   },
+
 
   previewText: {
-    flex: 1,
+    flex:
+      1,
 
-    marginLeft: 10,
+    marginLeft:
+      10,
   },
+
 
   previewTitle: {
-    fontSize: 14,
+    fontSize:
+      14,
 
-    fontWeight: '700',
+    fontWeight:
+      '700',
 
-    color: BLACK,
+    color:
+      BLACK,
   },
+
 
   previewAddress: {
-    marginTop: 2,
+    marginTop:
+      2,
 
-    fontSize: 11,
+    fontSize:
+      11,
 
-    color: GRAY,
+    color:
+      GRAY,
   },
 
 
-  /* CONFIRM */
+  /*
+  |--------------------------------------------------------------------------
+  | CONFIRM
+  |--------------------------------------------------------------------------
+  */
 
   confirmButton: {
-    height: 55,
+    height:
+      55,
 
-    marginTop: 12,
+    marginTop:
+      12,
 
-    borderRadius: 16,
+    borderRadius:
+      16,
 
     backgroundColor:
       GREEN,
 
-    flexDirection: 'row',
+    flexDirection:
+      'row',
 
-    alignItems: 'center',
+    alignItems:
+      'center',
 
-    justifyContent: 'center',
+    justifyContent:
+      'center',
   },
 
+
   confirmText: {
-    color: WHITE,
+    color:
+      WHITE,
 
-    fontSize: 16,
+    fontSize:
+      16,
 
-    fontWeight: '800',
+    fontWeight:
+      '800',
 
-    marginRight: 10,
+    marginRight:
+      10,
   },
 
 });

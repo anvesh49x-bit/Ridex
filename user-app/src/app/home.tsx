@@ -22,13 +22,10 @@ import {
 
 import { Ionicons } from '@expo/vector-icons';
 
-import {
-  APIProvider,
-  AdvancedMarker,
-  Map,
-} from '@vis.gl/react-google-maps';
-
-
+import MapView, {
+  Marker,
+  PROVIDER_GOOGLE,
+} from 'react-native-maps';
 /*
 |--------------------------------------------------------------------------
 | RIDEX HOME
@@ -1210,144 +1207,109 @@ export default function HomeScreen() {
             }
           >
 
-            {GOOGLE_API_KEY ? (
+           <MapView
+  style={{
+  flex: 1,
+}}
+  provider={PROVIDER_GOOGLE}
+  initialRegion={{
+    latitude: mapCenter.lat,
+    longitude: mapCenter.lng,
+    latitudeDelta:
+      hasCompleteTrip ? 0.08 : 0.06,
+    longitudeDelta:
+      hasCompleteTrip ? 0.08 : 0.06,
+  }}
+  onMapReady={() => {
+    setMapLoaded(true);
+  }}
+  showsCompass={false}
+  showsScale={false}
+  showsBuildings={false}
+  showsIndoors={false}
+  toolbarEnabled={false}
+  zoomEnabled
+  scrollEnabled
+  rotateEnabled={false}
+  pitchEnabled={false}
+>
 
-              <APIProvider
-                apiKey={
-                  GOOGLE_API_KEY
-                }
-              >
+  {/* PICKUP */}
 
-                <Map
+  {pickupCoordinates && (
 
-                  defaultCenter={
-                    mapCenter
-                  }
+    <Marker
+      coordinate={{
+        latitude:
+          pickupCoordinates.lat,
 
-                  defaultZoom={
-                    mapZoom
-                  }
+        longitude:
+          pickupCoordinates.lng,
+      }}
+      anchor={{
+        x: 0.5,
+        y: 0.5,
+      }}
+    >
 
-                  gestureHandling="greedy"
+      <View
+        style={
+          styles.mapPickup
+        }
+      >
 
-                  disableDefaultUI={
-                    true
-                  }
+        <View
+          style={
+            styles.mapPickupDot
+          }
+        />
 
-                  clickableIcons={
-                    false
-                  }
+      </View>
 
-                  mapId="DEMO_MAP_ID"
+    </Marker>
 
-                  onIdle={() =>
-                    setMapLoaded(
-                      true,
-                    )
-                  }
-
-                >
-
-                  {/* PICKUP */}
-
-                  {pickupCoordinates && (
-
-                    <AdvancedMarker
-                      position={
-                        pickupCoordinates
-                      }
-                    >
-
-                      <View
-                        style={
-                          styles.mapPickup
-                        }
-                      >
-
-                        <View
-                          style={
-                            styles.mapPickupDot
-                          }
-                        />
-
-                      </View>
-
-                    </AdvancedMarker>
-
-                  )}
+  )}
 
 
-                  {/* DESTINATION */}
+  {/* DESTINATION */}
 
-                  {dropCoordinates && (
+  {dropCoordinates && (
 
-                    <AdvancedMarker
-                      position={
-                        dropCoordinates
-                      }
-                    >
+    <Marker
+      coordinate={{
+        latitude:
+          dropCoordinates.lat,
 
-                      <View
-                        style={
-                          styles.mapDrop
-                        }
-                      >
+        longitude:
+          dropCoordinates.lng,
+      }}
+      anchor={{
+        x: 0.5,
+        y: 0.5,
+      }}
+    >
 
-                        <Ionicons
-                          name="location"
-                          size={36}
-                          color={
-                            COLORS.red
-                          }
-                        />
+      <View
+        style={
+          styles.mapDrop
+        }
+      >
 
-                      </View>
+        <Ionicons
+          name="location"
+          size={36}
+          color={
+            COLORS.red
+          }
+        />
 
-                    </AdvancedMarker>
+      </View>
 
-                  )}
+    </Marker>
 
-                </Map>
+  )}
 
-              </APIProvider>
-
-            ) : (
-
-              <View
-                style={
-                  styles.mapFallback
-                }
-              >
-
-                <Ionicons
-                  name="map-outline"
-                  size={40}
-                  color={
-                    COLORS.green
-                  }
-                />
-
-
-                <Text
-                  style={
-                    styles.mapFallbackTitle
-                  }
-                >
-                  Map unavailable
-                </Text>
-
-
-                <Text
-                  style={
-                    styles.mapFallbackText
-                  }
-                >
-                  Google Maps API key is missing.
-                </Text>
-
-              </View>
-
-            )}
+</MapView>
 
 
             {/* MAP LOADING */}

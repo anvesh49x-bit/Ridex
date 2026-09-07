@@ -1,4 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   ActivityIndicator,
@@ -17,27 +22,14 @@ import {
   useRouter,
 } from 'expo-router';
 
-import {
-  APIProvider,
-  AdvancedMarker,
-  Map,
+import MapView, {
+  Marker,
   Polyline,
-  useMap,
-} from '@vis.gl/react-google-maps';
+  PROVIDER_GOOGLE,
+  Region,
+} from 'react-native-maps';
 
 import { Ionicons } from '@expo/vector-icons';
-
-
-/* =========================================================================
-   RIDEX GOOGLE CONFIG START
-   ========================================================================= */
-
-const GOOGLE_API_KEY =
-  process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
-
-/* =========================================================================
-   RIDEX GOOGLE CONFIG END
-   ========================================================================= */
 
 
 /* =========================================================================
@@ -199,145 +191,247 @@ const formatDuration = (
    RIDEX GOOGLE ROUTE START
    ========================================================================= */
 
+/*
+ * Native-safe route calculation.
+ *
+ * The old implementation used:
+ *
+ *   window.google.maps
+ *   @vis.gl/react-google-maps
+ *
+ * Those APIs are browser-only and cause the Android
+ * "View config getter callback for component div" crash.
+ *
+ * We now call Google Directions/Routes over HTTP instead.
+ *
+ * IMPORTANT:
+ * For production, move this request to the RIDEX backend so
+ * the Google API key is not exposed in the mobile application.
+ */
+
 async function calculateGoogleRoute(
   pickup: Coordinates | null,
   drop: Coordinates | null,
-  pickupName: string,
-  pickupAddress: string,
-  dropName: string,
-  dropAddress: string,
 ): Promise<RouteInfo | null> {
 
-  if (!GOOGLE_API_KEY) {
+  if (!pickup || !drop) {
     return null;
   }
 
-  if (typeof window === 'undefined') {
+  /*
+   * Use the existing Google Places API key for the MVP.
+   *
+   * The native map itself gets its Android key from app.json.
+   */
+  const apiKey =
+    process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+
+  if (!apiKey) {
+    console.warn(
+      'RIDEX: Google API key unavailable for route calculation.',
+    );
+
     return null;
   }
 
-  const googleMaps =
-    (window as any)?.google?.maps;
-
-  if (!googleMaps) {
-    return null;
-  }
-
-  const { Route } =
-    await googleMaps.importLibrary('routes');
-
-  if (!Route) {
-    return null;
-  }
-
-  let result: any = null;
-
-  if (pickup && drop) {
-    result =
-      await Route.computeRoutes({
-        origin: pickup,
-        destination: drop,
-        travelMode: 'DRIVING',
-        routingPreference: 'TRAFFIC_AWARE',
-        fields: [
-          'distanceMeters',
-          'durationMillis',
-          'path',
-        ],
-      });
-  }
-
-  if (
-    !result?.routes ||
-    result.routes.length === 0
-  ) {
+  try {
     const origin =
-      pickupAddress || pickupName;
+      `${pickup.lat},${pickup.lng}`;
 
     const destination =
-      dropAddress || dropName;
+      `${drop.lat},${drop.lng}`;
 
-    if (!origin || !destination) {
+    /*
+     * Google Directions API.
+     *
+     * This is an HTTP request, so it works in React Native.
+     */
+    const url =
+      'https://maps.googleapis.com/maps/api/directions/json' +
+      `?origin=${encodeURIComponent(origin)}` +
+      `&destination=${encodeURIComponent(destination)}` +
+      `&mode=driving` +
+      `&departure_time=now` +
+      `&key=${encodeURIComponent(apiKey)}`;
+
+    const response =
+      await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(
+        `Google Directions HTTP ${response.status}`,
+      );
+    }
+
+    const data =
+      await response.json();
+
+    if (
+      data.status !== 'OK' ||
+      !data.routes ||
+      data.routes.length === 0
+    ) {
+      console.warn(
+        'RIDEX: Google Directions returned:',
+        data.status,
+      );
+
       return null;
     }
 
-    result =
-      await Route.computeRoutes({
-        origin,
-        destination,
-        travelMode: 'DRIVING',
-        routingPreference: 'TRAFFIC_AWARE',
-        fields: [
-          'distanceMeters',
-          'durationMillis',
-          'path',
-        ],
-      });
-  }
+    const route =
+      data.routes[0];
 
-  const route =
-    result?.routes?.[0];
+    const leg =
+      route?.legs?.[0];
 
-  if (!route) {
-    return null;
-  }
+    if (!leg) {
+      return null;
+    }
 
-  const distanceMeters =
-    Number(route.distanceMeters || 0);
-
-  const durationMillis =
-    Number(route.durationMillis || 0);
-
-  if (
-    distanceMeters <= 0 ||
-    durationMillis <= 0
-  ) {
-    return null;
-  }
-
-  const durationSeconds =
-    Math.max(
-      1,
-      Math.round(durationMillis / 1000),
-    );
-
-  const rawPath =
-    route.path || [];
-
-  const polyline =
-    rawPath
-      .map((point: any) => {
-        const lat =
-          typeof point.lat === 'function'
-            ? point.lat()
-            : Number(point.lat);
-
-        const lng =
-          typeof point.lng === 'function'
-            ? point.lng()
-            : Number(point.lng);
-
-        return {
-          lat,
-          lng,
-        };
-      })
-      .filter(
-        (point: Coordinates) =>
-          Number.isFinite(point.lat) &&
-          Number.isFinite(point.lng),
+    const distanceMeters =
+      Number(
+        leg.distance?.value || 0,
       );
 
-  return {
-    distanceMeters,
-    durationSeconds,
-    distanceText:
-      formatDistance(distanceMeters),
-    durationText:
-      formatDuration(durationSeconds),
-    polyline,
-  };
+    const durationSeconds =
+      Number(
+        (
+          leg.duration_in_traffic ||
+          leg.duration
+        )?.value || 0,
+      );
+
+    if (
+      distanceMeters <= 0 ||
+      durationSeconds <= 0
+    ) {
+      return null;
+    }
+
+    /*
+     * Google returns an encoded overview polyline.
+     *
+     * Decode it locally so react-native-maps can draw it.
+     */
+    const encodedPolyline =
+      route.overview_polyline?.points;
+
+    const polyline =
+      decodeGooglePolyline(
+        encodedPolyline,
+      );
+
+    return {
+      distanceMeters,
+      durationSeconds,
+      distanceText:
+        leg.distance?.text ||
+        formatDistance(distanceMeters),
+      durationText:
+        (
+          leg.duration_in_traffic ||
+          leg.duration
+        )?.text ||
+        formatDuration(durationSeconds),
+      polyline,
+    };
+
+  } catch (error) {
+
+    console.error(
+      'RIDEX Google route error:',
+      error,
+    );
+
+    return null;
+  }
 }
+
+
+/* =========================================================================
+   RIDEX POLYLINE DECODER START
+   ========================================================================= */
+
+function decodeGooglePolyline(
+  encoded?: string,
+): Coordinates[] {
+
+  if (!encoded) {
+    return [];
+  }
+
+  const points: Coordinates[] = [];
+
+  let index = 0;
+  let latitude = 0;
+  let longitude = 0;
+
+  while (index < encoded.length) {
+
+    let shift = 0;
+    let result = 0;
+
+    let byte: number;
+
+    do {
+      byte =
+        encoded.charCodeAt(index++) -
+        63;
+
+      result |=
+        (byte & 0x1f) <<
+        shift;
+
+      shift += 5;
+
+    } while (byte >= 0x20);
+
+    const latitudeChange =
+      (result & 1)
+        ? ~(result >> 1)
+        : result >> 1;
+
+    latitude +=
+      latitudeChange;
+
+    shift = 0;
+    result = 0;
+
+    do {
+      byte =
+        encoded.charCodeAt(index++) -
+        63;
+
+      result |=
+        (byte & 0x1f) <<
+        shift;
+
+      shift += 5;
+
+    } while (byte >= 0x20);
+
+    const longitudeChange =
+      (result & 1)
+        ? ~(result >> 1)
+        : result >> 1;
+
+    longitude +=
+      longitudeChange;
+
+    points.push({
+      lat: latitude / 1e5,
+      lng: longitude / 1e5,
+    });
+  }
+
+  return points;
+}
+
+/* =========================================================================
+   RIDEX POLYLINE DECODER END
+   ========================================================================= */
+
 
 /* =========================================================================
    RIDEX GOOGLE ROUTE END
@@ -353,67 +447,17 @@ function RideInProgressMap({
   drop,
   routeInfo,
   riderPosition,
+  onMapReady,
 }: {
   pickup: Coordinates | null;
   drop: Coordinates | null;
   routeInfo: RouteInfo | null;
   riderPosition: Coordinates | null;
+  onMapReady: () => void;
 }) {
 
-  const map =
-    useMap();
-
-  useEffect(() => {
-
-    if (!map) {
-      return;
-    }
-
-    const points: Coordinates[] = [];
-
-    if (pickup) {
-      points.push(pickup);
-    }
-
-    if (drop) {
-      points.push(drop);
-    }
-
-    if (riderPosition) {
-      points.push(riderPosition);
-    }
-
-    if (routeInfo?.polyline?.length) {
-      points.push(...routeInfo.polyline);
-    }
-
-    if (points.length < 2) {
-      return;
-    }
-
-    const googleMaps =
-      (window as any)?.google?.maps;
-
-    if (!googleMaps) {
-      return;
-    }
-
-    const bounds =
-      new googleMaps.LatLngBounds();
-
-    points.forEach(point =>
-      bounds.extend(point),
-    );
-
-    map.fitBounds(bounds, 42);
-
-  }, [
-    map,
-    pickup,
-    drop,
-    riderPosition,
-    routeInfo,
-  ]);
+  const mapRef =
+    useRef<MapView | null>(null);
 
   const center =
     pickup ||
@@ -422,48 +466,181 @@ function RideInProgressMap({
       lng: 80.6480,
     };
 
+  /*
+   * Automatically fit the pickup, rider and destination
+   * into the visible native map.
+   */
+  useEffect(() => {
+
+    if (!mapRef.current) {
+      return;
+    }
+
+    const points: {
+      latitude: number;
+      longitude: number;
+    }[] = [];
+
+    if (pickup) {
+      points.push({
+        latitude: pickup.lat,
+        longitude: pickup.lng,
+      });
+    }
+
+    if (drop) {
+      points.push({
+        latitude: drop.lat,
+        longitude: drop.lng,
+      });
+    }
+
+    if (riderPosition) {
+      points.push({
+        latitude: riderPosition.lat,
+        longitude: riderPosition.lng,
+      });
+    }
+
+    if (routeInfo?.polyline?.length) {
+      routeInfo.polyline.forEach(
+        point => {
+          points.push({
+            latitude: point.lat,
+            longitude: point.lng,
+          });
+        },
+      );
+    }
+
+    if (points.length < 2) {
+      return;
+    }
+
+    const timer =
+      setTimeout(() => {
+
+        mapRef.current?.fitToCoordinates(
+          points,
+          {
+            edgePadding: {
+              top: 80,
+              right: 70,
+              bottom: 150,
+              left: 70,
+            },
+            animated: true,
+          },
+        );
+
+      }, 250);
+
+    return () => {
+      clearTimeout(timer);
+    };
+
+  }, [
+    pickup,
+    drop,
+    riderPosition,
+    routeInfo,
+  ]);
+
   return (
-    <Map
-      defaultCenter={center}
-      defaultZoom={14}
-      gestureHandling="greedy"
-      disableDefaultUI
-      clickableIcons={false}
-      mapId="DEMO_MAP_ID"
-      style={{
-        width: '100%',
-        height: '100%',
+    <MapView
+      ref={mapRef}
+      style={styles.nativeMap}
+      provider={PROVIDER_GOOGLE}
+
+      initialRegion={{
+        latitude: center.lat,
+        longitude: center.lng,
+        latitudeDelta: 0.06,
+        longitudeDelta: 0.06,
       }}
+
+      onMapReady={onMapReady}
+
+      showsCompass={false}
+      showsScale={false}
+      showsBuildings={false}
+      showsIndoors={false}
+      showsTraffic={false}
+      toolbarEnabled={false}
+
+      zoomEnabled
+      scrollEnabled
+      rotateEnabled={false}
+      pitchEnabled={false}
+
+      loadingEnabled
+      moveOnMarkerPress={false}
     >
 
-      {routeInfo?.polyline &&
-        routeInfo.polyline.length > 1 && (
-          <Polyline
-            path={routeInfo.polyline}
-            strokeColor={COLORS.green}
-            strokeOpacity={0.95}
-            strokeWeight={5}
-          />
-        )}
+      {/* ===============================================================
+          REAL ROUTE
+      =============================================================== */}
 
       {routeInfo?.polyline &&
         routeInfo.polyline.length > 1 && (
           <Polyline
-            path={[
-              routeInfo.polyline[0],
-              ...(riderPosition
-                ? [riderPosition]
-                : []),
+            coordinates={routeInfo.polyline.map(
+              point => ({
+                latitude: point.lat,
+                longitude: point.lng,
+              }),
+            )}
+            strokeColor={COLORS.green}
+            strokeWidth={5}
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
+
+
+      {/* ===============================================================
+          RIDER → DESTINATION ROUTE
+      =============================================================== */}
+
+      {riderPosition &&
+        drop && (
+          <Polyline
+            coordinates={[
+              {
+                latitude:
+                  riderPosition.lat,
+                longitude:
+                  riderPosition.lng,
+              },
+              {
+                latitude:
+                  drop.lat,
+                longitude:
+                  drop.lng,
+              },
             ]}
             strokeColor={COLORS.blue}
-            strokeOpacity={0.95}
-            strokeWeight={5}
+            strokeWidth={4}
+            lineCap="round"
+            lineJoin="round"
           />
         )}
 
+
+      {/* ===============================================================
+          PICKUP MARKER
+      =============================================================== */}
+
       {pickup && (
-        <AdvancedMarker
-          position={pickup}
+        <Marker
+          coordinate={{
+            latitude: pickup.lat,
+            longitude: pickup.lng,
+          }}
+          anchor={{
+            x: 0.5,
+            y: 0.5,
+          }}
         >
           <View
             style={styles.pickupMarker}
@@ -472,12 +649,24 @@ function RideInProgressMap({
               style={styles.pickupMarkerDot}
             />
           </View>
-        </AdvancedMarker>
+        </Marker>
       )}
 
+
+      {/* ===============================================================
+          DROP MARKER
+      =============================================================== */}
+
       {drop && (
-        <AdvancedMarker
-          position={drop}
+        <Marker
+          coordinate={{
+            latitude: drop.lat,
+            longitude: drop.lng,
+          }}
+          anchor={{
+            x: 0.5,
+            y: 1,
+          }}
         >
           <View
             style={styles.dropMarker}
@@ -488,12 +677,27 @@ function RideInProgressMap({
               color={COLORS.red}
             />
           </View>
-        </AdvancedMarker>
+        </Marker>
       )}
 
+
+      {/* ===============================================================
+          RIDER MARKER
+      =============================================================== */}
+
       {riderPosition && (
-        <AdvancedMarker
-          position={riderPosition}
+        <Marker
+          coordinate={{
+            latitude:
+              riderPosition.lat,
+            longitude:
+              riderPosition.lng,
+          }}
+          anchor={{
+            x: 0.5,
+            y: 0.5,
+          }}
+          tracksViewChanges={false}
         >
           <View
             style={styles.mapRiderMarker}
@@ -504,10 +708,10 @@ function RideInProgressMap({
               resizeMode="contain"
             />
           </View>
-        </AdvancedMarker>
+        </Marker>
       )}
 
-    </Map>
+    </MapView>
   );
 }
 
@@ -608,10 +812,6 @@ export default function RideInProgressScreen() {
             await calculateGoogleRoute(
               pickup,
               drop,
-              pickupName,
-              pickupAddress,
-              dropName,
-              dropAddress,
             );
 
           if (!cancelled) {
@@ -636,7 +836,6 @@ export default function RideInProgressScreen() {
           }
 
         }
-
       };
 
     loadRoute();
@@ -648,10 +847,6 @@ export default function RideInProgressScreen() {
   }, [
     pickup,
     drop,
-    pickupName,
-    pickupAddress,
-    dropName,
-    dropAddress,
   ]);
 
   /* =========================================================================
@@ -676,16 +871,23 @@ export default function RideInProgressScreen() {
     }
 
     /*
-      MVP:
-      The rider is shown part-way along the real Google route.
-      Later this position will come from realtime rider GPS.
-    */
+     * MVP fallback:
+     *
+     * Until realtime rider GPS is connected,
+     * display the rider part-way along the route.
+     *
+     * This will later be replaced with the actual
+     * rider location from the backend.
+     */
 
     const riderIndex =
-      Math.max(
-        1,
-        Math.floor(
-          routeInfo.polyline.length * 0.48,
+      Math.min(
+        routeInfo.polyline.length - 1,
+        Math.max(
+          1,
+          Math.floor(
+            routeInfo.polyline.length * 0.48,
+          ),
         ),
       );
 
@@ -712,8 +914,8 @@ export default function RideInProgressScreen() {
     const timer =
       setInterval(() => {
 
-        setElapsedMinutes(current =>
-          current + 1,
+        setElapsedMinutes(
+          current => current + 1,
         );
 
       }, 60000);
@@ -724,8 +926,31 @@ export default function RideInProgressScreen() {
 
   }, []);
 
+  /*
+   * Keep this value alive for the existing ride-flow state.
+   *
+   * Later it can be replaced with the actual ride duration
+   * coming from the backend.
+   */
+  void elapsedMinutes;
+
   /* =========================================================================
      RIDEX LIVE RIDE STATE END
+     ========================================================================= */
+
+
+  /* =========================================================================
+     RIDEX MAP STATE START
+     ========================================================================= */
+
+  const [mapLoaded, setMapLoaded] =
+    useState(false);
+
+  const mapRef =
+    useRef<MapView | null>(null);
+
+  /* =========================================================================
+     RIDEX MAP STATE END
      ========================================================================= */
 
 
@@ -742,6 +967,7 @@ export default function RideInProgressScreen() {
 
   };
 
+
   const handleChat = () => {
 
     Alert.alert(
@@ -751,6 +977,7 @@ export default function RideInProgressScreen() {
 
   };
 
+
   const handleSafety = () => {
 
     Alert.alert(
@@ -759,6 +986,7 @@ export default function RideInProgressScreen() {
     );
 
   };
+
 
   const handleBack = () => {
 
@@ -775,6 +1003,34 @@ export default function RideInProgressScreen() {
           onPress: () => router.back(),
         },
       ],
+    );
+
+  };
+
+
+  const handleLocate = () => {
+
+    if (!mapRef.current) {
+      return;
+    }
+
+    const point =
+      riderPosition ||
+      pickup ||
+      drop;
+
+    if (!point) {
+      return;
+    }
+
+    mapRef.current.animateToRegion(
+      {
+        latitude: point.lat,
+        longitude: point.lng,
+        latitudeDelta: 0.025,
+        longitudeDelta: 0.025,
+      },
+      500,
     );
 
   };
@@ -827,22 +1083,34 @@ export default function RideInProgressScreen() {
             />
           </Pressable>
 
-          <View style={styles.headerCenter}>
 
-            <Text style={styles.headerTitle}>
+          <View
+            style={styles.headerCenter}
+          >
+
+            <Text
+              style={styles.headerTitle}
+            >
               Ride in progress
             </Text>
 
-            <Text style={styles.headerSubtitle}>
+            <Text
+              style={styles.headerSubtitle}
+            >
               Enjoy your ride
             </Text>
 
           </View>
 
-          <View style={styles.headerActions}>
+
+          <View
+            style={styles.headerActions}
+          >
 
             <Pressable
-              style={styles.headerActionButton}
+              style={
+                styles.headerActionButton
+              }
               onPress={handleCall}
             >
               <Ionicons
@@ -852,8 +1120,11 @@ export default function RideInProgressScreen() {
               />
             </Pressable>
 
+
             <Pressable
-              style={styles.headerActionButton}
+              style={
+                styles.headerActionButton
+              }
               onPress={handleChat}
             >
               <Ionicons
@@ -884,45 +1155,28 @@ export default function RideInProgressScreen() {
           ]}
         >
 
-          {GOOGLE_API_KEY ? (
+          <RideInProgressMap
+            pickup={pickup}
+            drop={drop}
+            routeInfo={routeInfo}
+            riderPosition={riderPosition}
+            onMapReady={() => {
+              setMapLoaded(true);
+            }}
+          />
 
-            <APIProvider
-              apiKey={GOOGLE_API_KEY}
-              libraries={['routes']}
+
+          {/* ============================================================
+              DROP LABEL
+          ============================================================ */}
+
+          <View
+            style={styles.dropCard}
+          >
+
+            <Text
+              style={styles.dropLabel}
             >
-
-              <RideInProgressMap
-                pickup={pickup}
-                drop={drop}
-                routeInfo={routeInfo}
-                riderPosition={riderPosition}
-              />
-
-            </APIProvider>
-
-          ) : (
-
-            <View style={styles.mapFallback}>
-
-              <Ionicons
-                name="map-outline"
-                size={38}
-                color={COLORS.green}
-              />
-
-              <Text style={styles.mapFallbackText}>
-                Google Maps API key unavailable
-              </Text>
-
-            </View>
-
-          )}
-
-          {/* Drop label */}
-
-          <View style={styles.dropCard}>
-
-            <Text style={styles.dropLabel}>
               DROP
             </Text>
 
@@ -935,11 +1189,18 @@ export default function RideInProgressScreen() {
 
           </View>
 
-          {/* Pickup label */}
 
-          <View style={styles.pickupCard}>
+          {/* ============================================================
+              PICKUP LABEL
+          ============================================================ */}
 
-            <Text style={styles.pickupLabel}>
+          <View
+            style={styles.pickupCard}
+          >
+
+            <Text
+              style={styles.pickupLabel}
+            >
               PICKUP
             </Text>
 
@@ -952,11 +1213,18 @@ export default function RideInProgressScreen() {
 
           </View>
 
-          {/* Destination distance */}
 
-          <View style={styles.destinationCard}>
+          {/* ============================================================
+              DESTINATION DISTANCE
+          ============================================================ */}
 
-            <View style={styles.navigationCircle}>
+          <View
+            style={styles.destinationCard}
+          >
+
+            <View
+              style={styles.navigationCircle}
+            >
 
               <Ionicons
                 name="navigate"
@@ -966,20 +1234,32 @@ export default function RideInProgressScreen() {
 
             </View>
 
-            <View style={styles.destinationCopy}>
 
-              <Text style={styles.destinationDistance}>
+            <View
+              style={styles.destinationCopy}
+            >
+
+              <Text
+                style={
+                  styles.destinationDistance
+                }
+              >
                 {routeInfo?.distanceText ||
                   params.distanceText ||
                   '5.2 km'}{' '}
                 away
               </Text>
 
-              <Text style={styles.destinationSubtext}>
+              <Text
+                style={
+                  styles.destinationSubtext
+                }
+              >
                 from destination
               </Text>
 
             </View>
+
 
             <Ionicons
               name="chevron-forward"
@@ -989,11 +1269,14 @@ export default function RideInProgressScreen() {
 
           </View>
 
-          {/* Locate */}
+
+          {/* ============================================================
+              LOCATE
+          ============================================================ */}
 
           <Pressable
             style={styles.locateButton}
-            onPress={() => {}}
+            onPress={handleLocate}
           >
 
             <Ionicons
@@ -1004,14 +1287,19 @@ export default function RideInProgressScreen() {
 
           </Pressable>
 
-          {/* Safety */}
+
+          {/* ============================================================
+              SAFETY
+          ============================================================ */}
 
           <Pressable
             style={styles.safetyButton}
             onPress={handleSafety}
           >
 
-            <View style={styles.safetyIconCircle}>
+            <View
+              style={styles.safetyIconCircle}
+            >
 
               <Ionicons
                 name="shield"
@@ -1021,24 +1309,56 @@ export default function RideInProgressScreen() {
 
             </View>
 
-            <Text style={styles.safetyText}>
+            <Text
+              style={styles.safetyText}
+            >
               Safety
             </Text>
 
           </Pressable>
 
+
+          {/* ============================================================
+              ROUTE LOADING
+          ============================================================ */}
+
           {routeLoading && (
 
-            <View style={styles.routeLoading}>
+            <View
+              style={styles.routeLoading}
+            >
 
               <ActivityIndicator
                 size="small"
                 color={COLORS.green}
               />
 
-              <Text style={styles.routeLoadingText}>
+              <Text
+                style={styles.routeLoadingText}
+              >
                 Loading route...
               </Text>
+
+            </View>
+
+          )}
+
+
+          {/* ============================================================
+              MAP LOADING
+          ============================================================ */}
+
+          {!mapLoaded && (
+
+            <View
+              pointerEvents="none"
+              style={styles.mapLoadingOverlay}
+            >
+
+              <ActivityIndicator
+                size="small"
+                color={COLORS.green}
+              />
 
             </View>
 
@@ -1132,7 +1452,8 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: COLORS.greenVerySoft,
+    backgroundColor:
+      COLORS.greenVerySoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1153,6 +1474,23 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 
+  nativeMap: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+
+  mapLoadingOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E9F0ED',
+  },
+
   mapFallback: {
     flex: 1,
     alignItems: 'center',
@@ -1170,7 +1508,8 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: COLORS.greenSoft,
+    backgroundColor:
+      COLORS.greenSoft,
     borderWidth: 3,
     borderColor: COLORS.green,
     alignItems: 'center',
@@ -1197,7 +1536,8 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     backgroundColor: COLORS.white,
     borderWidth: 2,
-    borderColor: COLORS.greenSoft,
+    borderColor:
+      COLORS.greenSoft,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -1289,7 +1629,8 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 14,
-    backgroundColor: COLORS.blueSoft,
+    backgroundColor:
+      COLORS.blueSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -22,7 +22,7 @@ import {
 } from 'expo-router';
 
 import { Ionicons } from '@expo/vector-icons';
-
+import * as Location from 'expo-location';
 
 /*
 |--------------------------------------------------------------------------
@@ -678,203 +678,133 @@ export default function LocationPicker() {
   |--------------------------------------------------------------------------
   */
 
-  const useCurrentLocation =
-    async () => {
+const useCurrentLocation = async () => {
+  if (locationType !== 'pickup') {
+    return;
+  }
 
-      if (
-        locationType !==
-        'pickup'
-      ) {
+  try {
+    setLoading(true);
 
-        return;
+    /*
+    |--------------------------------------------------------------------------
+    | REQUEST FOREGROUND LOCATION PERMISSION
+    |--------------------------------------------------------------------------
+    */
 
-      }
+    const { status } =
+      await Location.requestForegroundPermissionsAsync();
 
+    if (status !== Location.PermissionStatus.GRANTED) {
+      Alert.alert(
+        'Location permission required',
+        'Please allow RIDEX to access your location so we can find your pickup point.',
+      );
 
-      if (
-        typeof navigator ===
-        'undefined' ||
+      return;
+    }
 
-        !navigator.geolocation
-      ) {
+    /*
+    |--------------------------------------------------------------------------
+    | GET CURRENT GPS LOCATION
+    |--------------------------------------------------------------------------
+    */
 
-        Alert.alert(
-          'Location unavailable',
-          'Your device location is not available. Please search for your pickup location instead.',
-        );
+    const location =
+      await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
 
-        return;
+    const latitude =
+      location.coords.latitude;
 
-      }
+    const longitude =
+      location.coords.longitude;
 
+    /*
+    |--------------------------------------------------------------------------
+    | REVERSE GEOCODE
+    |--------------------------------------------------------------------------
+    */
 
-      try {
+    let address =
+      'Current location';
 
-        setLoading(true);
+    try {
+      const addresses =
+        await Location.reverseGeocodeAsync({
+          latitude,
+          longitude,
+        });
 
+      if (addresses.length > 0) {
+        const place =
+          addresses[0];
 
-        const position =
-          await new Promise<GeolocationPosition>(
-            (
-              resolve,
-              reject,
-            ) => {
+        const parts = [
+          place.name,
+          place.street,
+          place.district,
+          place.city,
+          place.region,
+          place.postalCode,
+        ].filter(Boolean);
 
-              navigator.geolocation.getCurrentPosition(
-
-                resolve,
-
-                reject,
-
-                {
-
-                  enableHighAccuracy:
-                    true,
-
-                  timeout:
-                    15000,
-
-                  maximumAge:
-                    30000,
-
-                },
-
-              );
-
-            },
-          );
-
-
-        const latitude =
-          position.coords.latitude;
-
-
-        const longitude =
-          position.coords.longitude;
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Reverse geocode
-        |--------------------------------------------------------------------------
-        */
-
-        let address =
-          'Current location';
-
-
-        if (
-          GOOGLE_API_KEY
-        ) {
-
-          try {
-
-            const response =
-              await fetch(
-
-                `https://geocode.googleapis.com/v4beta/geocode/location?location.latitude=${latitude}&location.longitude=${longitude}`,
-
-                {
-
-                  headers: {
-
-                    'X-Goog-Api-Key':
-                      GOOGLE_API_KEY,
-
-                  },
-
-                },
-
-              );
-
-
-            if (
-              response.ok
-            ) {
-
-              const data =
-                await response.json();
-
-
-              address =
-                data.results?.[0]
-                  ?.formattedAddress ||
-
-                'Current location';
-
-            }
-
-          } catch (
-            reverseGeocodeError
-          ) {
-
-            console.warn(
-              'RIDEX: Reverse geocoding failed:',
-              reverseGeocodeError,
-            );
-
-          }
-
+        if (parts.length > 0) {
+          address =
+            parts.join(', ');
         }
-
-
-        const currentLocation:
-          LocationResult = {
-
-            id:
-              'current-location',
-
-            name:
-              'Current location',
-
-            address,
-
-            latitude,
-
-            longitude,
-
-          };
-
-
-        setSelected(
-          currentLocation,
-        );
-
-        setQuery(
-          'Current location',
-        );
-
-        setResults([]);
-
-        setSearched(false);
-
-      } catch (
-        error
-      ) {
-
-        console.error(
-          'RIDEX: Current location error:',
-          error,
-        );
-
-
-        Alert.alert(
-
-          'Unable to get location',
-
-          'Please allow location access or search for your pickup manually.',
-
-        );
-
-      } finally {
-
-        setLoading(false);
-
       }
+    } catch (reverseGeocodeError) {
+      console.warn(
+        'RIDEX: Reverse geocoding failed:',
+        reverseGeocodeError,
+      );
+    }
 
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE SELECTED LOCATION
+    |--------------------------------------------------------------------------
+    */
+
+    const currentLocation: LocationResult = {
+      id: 'current-location',
+
+      name: 'Current location',
+
+      address,
+
+      latitude,
+
+      longitude,
     };
 
+    setSelected(
+      currentLocation,
+    );
 
+    setQuery(
+      'Current location',
+    );
+
+    setResults([]);
+
+    setSearched(false);
+  } catch (error) {
+    console.error(
+      'RIDEX: Current location error:',
+      error,
+    );
+
+    Alert.alert(
+      'Unable to get location',
+      'Please make sure Location is turned on and allow RIDEX to access your location.',
+    );
+  } finally {
+    setLoading(false);
+  }
+};
   /*
   |--------------------------------------------------------------------------
   | CHOOSE ON MAP
