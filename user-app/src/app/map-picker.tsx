@@ -1,6 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, {
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -8,88 +14,159 @@ import {
   View,
 } from 'react-native';
 
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import MapView, {
+  Region,
+} from 'react-native-maps';
 
 import {
-  APIProvider,
-  Map,
-  AdvancedMarker,
-  useMap,
-} from '@vis.gl/react-google-maps';
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 
-const GOOGLE_API_KEY =
-  process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+import { Ionicons } from '@expo/vector-icons';
+
+import * as Location from 'expo-location';
+
+
+/*
+|--------------------------------------------------------------------------
+| TYPES
+|--------------------------------------------------------------------------
+*/
+
+type LocationType =
+  | 'pickup'
+  | 'drop';
+
+
+/*
+|--------------------------------------------------------------------------
+| COLORS
+|--------------------------------------------------------------------------
+*/
 
 const GREEN = '#079A4B';
 const BLACK = '#111820';
-const GRAY = '#737C88';
 const WHITE = '#FFFFFF';
+const GRAY = '#737C88';
 
-type Coordinates = {
-  lat: number;
-  lng: number;
+
+/*
+|--------------------------------------------------------------------------
+| GOOGLE GEOCODING
+|--------------------------------------------------------------------------
+|
+| This key must be the separate key that has:
+|
+| - Geocoding API
+| - Routes API
+| - Application restriction: None
+|
+*/
+
+const GOOGLE_GEOCODING_API_KEY =
+  process.env.EXPO_PUBLIC_GOOGLE_ROUTES_API_KEY;
+
+
+/*
+|--------------------------------------------------------------------------
+| DEFAULT REGION
+|--------------------------------------------------------------------------
+*/
+
+const DEFAULT_REGION: Region = {
+  latitude: 16.5062,
+  longitude: 80.6480,
+
+  latitudeDelta: 0.04,
+  longitudeDelta: 0.04,
 };
 
-const DEFAULT_LOCATION: Coordinates = {
-  lat: 16.5062,
-  lng: 80.6480,
-};
 
-function MapCamera({
-  position,
-}: {
-  position: Coordinates;
-}) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (!map) {
-      return;
-    }
-
-    map.panTo(position);
-  }, [
-    map,
-    position.lat,
-    position.lng,
-  ]);
-
-  return null;
-}
+/*
+|--------------------------------------------------------------------------
+| MAP PICKER
+|--------------------------------------------------------------------------
+*/
 
 export default function MapPicker() {
+
   const router = useRouter();
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | PARAMETERS
+  |--------------------------------------------------------------------------
+  */
 
   const params =
     useLocalSearchParams<{
       type?: string;
+
       pickupName?: string;
       pickupAddress?: string;
+
       pickupLat?: string;
       pickupLng?: string;
     }>();
 
-  const type =
+
+  const type: LocationType =
     params.type === 'drop'
       ? 'drop'
       : 'pickup';
 
-  const [position, setPosition] =
-    useState<Coordinates>(
-      DEFAULT_LOCATION,
+
+  /*
+  |--------------------------------------------------------------------------
+  | MAP REGION
+  |--------------------------------------------------------------------------
+  */
+
+  const [region, setRegion] =
+    useState<Region>(
+      DEFAULT_REGION,
     );
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | ADDRESS
+  |--------------------------------------------------------------------------
+  */
 
   const [address, setAddress] =
     useState(
-      'Move the map to choose a location',
+      'Finding address...',
     );
 
-  const [loading, setLoading] =
+
+  const [addressLoading, setAddressLoading] =
     useState(false);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | DEVICE LOCATION
+  |--------------------------------------------------------------------------
+  */
 
   const [locationLoading, setLocationLoading] =
     useState(true);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | GEOCODING TIMER
+  |--------------------------------------------------------------------------
+  */
+
+  const geocodeTimer =
+    useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
+
 
   /*
   |--------------------------------------------------------------------------
@@ -97,161 +174,397 @@ export default function MapPicker() {
   |--------------------------------------------------------------------------
   */
 
-  const reverseGeocode = async (
-    coordinates: Coordinates,
-  ) => {
-    if (!GOOGLE_API_KEY) {
-      return;
-    }
+  const reverseGeocode =
+    async (
+      latitude: number,
+      longitude: number,
+    ) => {
 
-    try {
-      setLoading(true);
+      if (
+        !GOOGLE_GEOCODING_API_KEY
+      ) {
 
-      const response =
-        await fetch(
-          `https://geocode.googleapis.com/v4beta/geocode/location?location.latitude=${coordinates.lat}&location.longitude=${coordinates.lng}`,
-          {
-            headers: {
-              'X-Goog-Api-Key':
-                GOOGLE_API_KEY,
-            },
-          },
+        console.error(
+          'RIDEX: Google Geocoding API key is missing.',
         );
 
-      if (!response.ok) {
-        throw new Error(
-          'Geocoding failed',
+        setAddress(
+          'Address unavailable',
         );
+
+        return;
       }
 
-      const data =
-        await response.json();
 
-      const formattedAddress =
-        data.results?.[0]
-          ?.formattedAddress;
+      try {
 
-      if (formattedAddress) {
-        setAddress(
-          formattedAddress,
+        setAddressLoading(
+          true,
         );
-      } else {
-        setAddress(
-          'Selected location',
+
+
+        console.log(
+          'RIDEX: Reverse geocoding:',
+          latitude,
+          longitude,
         );
+
+
+        const response =
+          await fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_GEOCODING_API_KEY}`,
+          );
+
+
+        const data =
+          await response.json();
+
+
+        console.log(
+          'RIDEX: Geocoding status:',
+          data.status,
+        );
+
+
+        if (
+          !response.ok
+        ) {
+
+          throw new Error(
+            `Geocoding HTTP ${response.status}`,
+          );
+
+        }
+
+
+        if (
+          data.status !== 'OK'
+        ) {
+
+          console.error(
+            'RIDEX: Google Geocoding error:',
+            data,
+          );
+
+
+          setAddress(
+            'Address not found',
+          );
+
+          return;
+        }
+
+
+        const formattedAddress =
+          data.results?.[0]
+            ?.formatted_address;
+
+
+        if (
+          formattedAddress
+        ) {
+
+          setAddress(
+            formattedAddress,
+          );
+
+        } else {
+
+          setAddress(
+            'Selected location',
+          );
+
+        }
+
+      } catch (error) {
+
+        console.error(
+          'RIDEX: Reverse geocoding error:',
+          error,
+        );
+
+
+        setAddress(
+          'Unable to find address',
+        );
+
+      } finally {
+
+        setAddressLoading(
+          false,
+        );
+
       }
-    } catch (error) {
-      console.error(
-        'Reverse geocoding error:',
-        error,
-      );
 
-      setAddress(
-        'Selected location',
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+
 
   /*
   |--------------------------------------------------------------------------
-  | GET CURRENT LOCATION
+  | SCHEDULE ADDRESS LOOKUP
   |--------------------------------------------------------------------------
   |
-  | This is intentionally kept as the WEB implementation.
-  | Android/iOS use map-picker.native.tsx instead.
+  | Wait 600ms after the user stops moving the map.
+  | This prevents dozens of Google requests while dragging.
   |
+  */
+
+  const scheduleReverseGeocode =
+    (
+      latitude: number,
+      longitude: number,
+    ) => {
+
+      if (
+        geocodeTimer.current
+      ) {
+
+        clearTimeout(
+          geocodeTimer.current,
+        );
+
+      }
+
+
+      setAddressLoading(
+        true,
+      );
+
+
+      geocodeTimer.current =
+        setTimeout(
+          () => {
+
+            reverseGeocode(
+              latitude,
+              longitude,
+            );
+
+          },
+          600,
+        );
+
+    };
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | MAP MOVEMENT
+  |--------------------------------------------------------------------------
+  */
+
+  const handleRegionChangeComplete =
+    (
+      newRegion: Region,
+    ) => {
+
+      setRegion(
+        newRegion,
+      );
+
+
+      scheduleReverseGeocode(
+        newRegion.latitude,
+        newRegion.longitude,
+      );
+
+    };
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | CLEANUP
+  |--------------------------------------------------------------------------
   */
 
   useEffect(() => {
-    if (
-      typeof navigator ===
-        'undefined' ||
-      !navigator.geolocation
-    ) {
-      setLocationLoading(false);
-      return;
-    }
 
-    navigator.geolocation.getCurrentPosition(
-      (currentPosition) => {
-        const coordinates = {
-          lat:
-            currentPosition.coords.latitude,
-          lng:
-            currentPosition.coords.longitude,
-        };
+    return () => {
 
-        setPosition(
-          coordinates,
+      if (
+        geocodeTimer.current
+      ) {
+
+        clearTimeout(
+          geocodeTimer.current,
         );
 
-        reverseGeocode(
-          coordinates,
-        );
+      }
 
-        setLocationLoading(false);
-      },
+    };
 
-      (error) => {
-        console.log(
-          'GPS unavailable:',
-          error.message,
-        );
-
-        reverseGeocode(
-          DEFAULT_LOCATION,
-        );
-
-        setLocationLoading(false);
-      },
-
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 30000,
-      },
-    );
   }, []);
+
 
   /*
   |--------------------------------------------------------------------------
-  | MAP CLICK
+  | GET DEVICE LOCATION
   |--------------------------------------------------------------------------
   */
 
-  const handleMapClick = (
-    event: any,
-  ) => {
-    const latitude =
-      event.detail.latLng?.lat;
+  const getCurrentLocation =
+    async (
+      showErrorAlert = true,
+    ) => {
 
-    const longitude =
-      event.detail.latLng?.lng;
+      try {
 
-    if (
-      typeof latitude !==
-        'number' ||
-      typeof longitude !==
-        'number'
-    ) {
-      return;
-    }
+        setLocationLoading(
+          true,
+        );
 
-    const coordinates = {
-      lat: latitude,
-      lng: longitude,
+
+        /*
+        |--------------------------------------------------------------------------
+        | LOCATION PERMISSION
+        |--------------------------------------------------------------------------
+        */
+
+        const {
+          status,
+        } =
+          await Location.requestForegroundPermissionsAsync();
+
+
+        if (
+          status !==
+          Location.PermissionStatus.GRANTED
+        ) {
+
+          console.log(
+            'RIDEX: Location permission denied.',
+          );
+
+
+          if (
+            showErrorAlert
+          ) {
+
+            Alert.alert(
+              'Location permission required',
+              'Please allow RIDEX to access your location so we can find your current position.',
+            );
+
+          }
+
+
+          setLocationLoading(
+            false,
+          );
+
+          return;
+
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | CURRENT POSITION
+        |--------------------------------------------------------------------------
+        */
+
+        const currentLocation =
+          await Location.getCurrentPositionAsync(
+            {
+              accuracy:
+                Location.Accuracy.High,
+            },
+          );
+
+
+        const latitude =
+          currentLocation.coords.latitude;
+
+
+        const longitude =
+          currentLocation.coords.longitude;
+
+
+        const newRegion: Region = {
+          latitude,
+          longitude,
+
+          latitudeDelta:
+            0.012,
+
+          longitudeDelta:
+            0.012,
+        };
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | UPDATE MAP
+        |--------------------------------------------------------------------------
+        */
+
+        setRegion(
+          newRegion,
+        );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | GET ADDRESS
+        |--------------------------------------------------------------------------
+        */
+
+        await reverseGeocode(
+          latitude,
+          longitude,
+        );
+
+
+        console.log(
+          'RIDEX: Current GPS location:',
+          latitude,
+          longitude,
+        );
+
+      } catch (error) {
+
+        console.error(
+          'RIDEX: Unable to get current location:',
+          error,
+        );
+
+
+        if (
+          showErrorAlert
+        ) {
+
+          Alert.alert(
+            'Unable to get location',
+            'Please make sure Location is turned on and allow RIDEX to access your location.',
+          );
+
+        }
+
+      } finally {
+
+        setLocationLoading(
+          false,
+        );
+
+      }
+
     };
 
-    setPosition(
-      coordinates,
+
+  /*
+  |--------------------------------------------------------------------------
+  | INITIAL LOCATION
+  |--------------------------------------------------------------------------
+  */
+
+  useEffect(() => {
+
+    getCurrentLocation(
+      false,
     );
 
-    reverseGeocode(
-      coordinates,
-    );
-  };
+  }, []);
+
 
   /*
   |--------------------------------------------------------------------------
@@ -259,54 +572,15 @@ export default function MapPicker() {
   |--------------------------------------------------------------------------
   */
 
-  const useCurrentLocation = () => {
-    if (
-      typeof navigator ===
-        'undefined' ||
-      !navigator.geolocation
-    ) {
-      return;
-    }
+  const useCurrentLocation =
+    async () => {
 
-    setLocationLoading(
-      true,
-    );
+      await getCurrentLocation(
+        true,
+      );
 
-    navigator.geolocation.getCurrentPosition(
-      (currentPosition) => {
-        const coordinates = {
-          lat:
-            currentPosition.coords.latitude,
-          lng:
-            currentPosition.coords.longitude,
-        };
+    };
 
-        setPosition(
-          coordinates,
-        );
-
-        reverseGeocode(
-          coordinates,
-        );
-
-        setLocationLoading(
-          false,
-        );
-      },
-
-      () => {
-        setLocationLoading(
-          false,
-        );
-      },
-
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 30000,
-      },
-    );
-  };
 
   /*
   |--------------------------------------------------------------------------
@@ -314,318 +588,446 @@ export default function MapPicker() {
   |--------------------------------------------------------------------------
   */
 
-  const confirmLocation = () => {
-    if (
-      type ===
-      'pickup'
-    ) {
+  const confirmLocation =
+    () => {
+
+      /*
+      |--------------------------------------------------------------------------
+      | PICKUP
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        type === 'pickup'
+      ) {
+
+        router.replace({
+
+          pathname:
+            '/location-picker',
+
+          params: {
+
+            type:
+              'drop',
+
+            pickupName:
+              'Selected pickup',
+
+            pickupAddress:
+              address,
+
+            pickupLat:
+              String(
+                region.latitude,
+              ),
+
+            pickupLng:
+              String(
+                region.longitude,
+              ),
+
+          },
+
+        });
+
+
+        return;
+
+      }
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | DROP
+      |--------------------------------------------------------------------------
+      */
+
       router.replace({
+
         pathname:
-          '/location-picker' as any,
+          '/home',
 
         params: {
-          type: 'drop',
 
           pickupName:
-            'Selected pickup',
+            params.pickupName ||
+            'Current location',
 
           pickupAddress:
-            address,
+            params.pickupAddress ||
+            '',
 
           pickupLat:
-            String(
-              position.lat,
-            ),
+            params.pickupLat ||
+            '',
 
           pickupLng:
+            params.pickupLng ||
+            '',
+
+
+          dropName:
+            'Selected destination',
+
+          dropAddress:
+            address,
+
+          dropLat:
             String(
-              position.lng,
+              region.latitude,
             ),
+
+          dropLng:
+            String(
+              region.longitude,
+            ),
+
         },
+
       });
 
-      return;
-    }
+    };
 
-    router.replace({
-      pathname:
-        '/home' as any,
-
-      params: {
-        pickupName:
-          params.pickupName ||
-          'Current location',
-
-        pickupAddress:
-          params.pickupAddress ||
-          '',
-
-        pickupLat:
-          params.pickupLat ||
-          '',
-
-        pickupLng:
-          params.pickupLng ||
-          '',
-
-        dropName:
-          'Selected destination',
-
-        dropAddress:
-          address,
-
-        dropLat:
-          String(
-            position.lat,
-          ),
-
-        dropLng:
-          String(
-            position.lng,
-          ),
-      },
-    });
-  };
 
   /*
   |--------------------------------------------------------------------------
-  | API KEY CHECK
+  | TITLE
   |--------------------------------------------------------------------------
   */
 
-  if (!GOOGLE_API_KEY) {
-    return (
-      <SafeAreaView
-        style={styles.safeArea}
-      >
-        <View
-          style={
-            styles.errorContainer
-          }
-        >
-          <Ionicons
-            name="warning-outline"
-            size={40}
-            color={GREEN}
-          />
+  const title =
+    type === 'pickup'
+      ? 'Choose pickup on map'
+      : 'Choose destination on map';
 
-          <Text
-            style={
-              styles.errorTitle
-            }
-          >
-            Google Maps API key missing
-          </Text>
-
-          <Text
-            style={
-              styles.errorText
-            }
-          >
-            Check
-            {' '}
-            EXPO_PUBLIC_GOOGLE_PLACES_API_KEY
-            {' '}
-            in your .env.local file.
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   /*
   |--------------------------------------------------------------------------
-  | MAIN UI
+  | UI
   |--------------------------------------------------------------------------
   */
 
   return (
+
     <SafeAreaView
-      style={styles.safeArea}
+      style={
+        styles.safeArea
+      }
     >
+
       <View
-        style={styles.container}
+        style={
+          styles.container
+        }
       >
 
-        {/* HEADER */}
+
+        {/* ================================================================
+            HEADER
+        ================================================================= */}
 
         <View
-          style={styles.header}
+          style={
+            styles.header
+          }
         >
+
           <Pressable
-            style={styles.backButton}
+            style={
+              styles.backButton
+            }
             onPress={() =>
               router.back()
             }
           >
+
             <Ionicons
               name="arrow-back"
               size={25}
               color={BLACK}
             />
+
           </Pressable>
 
+
           <Text
-            style={styles.headerTitle}
-          >
-            {type === 'pickup'
-              ? 'Choose pickup'
-              : 'Choose destination'}
-          </Text>
-
-          <View
-            style={styles.headerSpacer}
-          />
-        </View>
-
-        {/* MAP */}
-
-        <View
-          style={styles.mapContainer}
-        >
-          <APIProvider
-            apiKey={
-              GOOGLE_API_KEY
+            style={
+              styles.headerTitle
             }
           >
-            <Map
-              defaultZoom={15}
-              defaultCenter={
-                DEFAULT_LOCATION
-              }
-              gestureHandling="greedy"
-              disableDefaultUI
-              clickableIcons={false}
-              onClick={
-                handleMapClick
-              }
-              mapId="RIDEX_MAP"
-            >
-              <MapCamera
-                position={
-                  position
-                }
-              />
+            {title}
+          </Text>
 
-              <AdvancedMarker
-                position={
-                  position
-                }
-              >
-                <View
-                  style={
-                    styles.marker
-                  }
-                >
-                  <Ionicons
-                    name="location"
-                    size={40}
-                    color={GREEN}
-                  />
-                </View>
-              </AdvancedMarker>
-            </Map>
-          </APIProvider>
-
-          {/* INSTRUCTION */}
 
           <View
             style={
-              styles.instruction
+              styles.headerSpacer
             }
+          />
+
+        </View>
+
+
+        {/* ================================================================
+            MAP
+        ================================================================= */}
+
+        <View
+          style={
+            styles.mapContainer
+          }
+        >
+
+          <MapView
+
+            style={
+              styles.map
+            }
+
+            region={
+              region
+            }
+
+            onRegionChangeComplete={
+              handleRegionChangeComplete
+            }
+
+            showsUserLocation={
+              true
+            }
+
+            showsMyLocationButton={
+              false
+            }
+
+            showsCompass={
+              false
+            }
+
+            showsBuildings={
+              false
+            }
+
+            showsIndoors={
+              false
+            }
+
+            toolbarEnabled={
+              false
+            }
+
+            zoomEnabled={
+              true
+            }
+
+            scrollEnabled={
+              true
+            }
+
+            rotateEnabled={
+              false
+            }
+
+            pitchEnabled={
+              false
+            }
+
+            loadingEnabled={
+              true
+            }
+
+            loadingIndicatorColor={
+              GREEN
+            }
+
+            loadingBackgroundColor={
+              WHITE
+            }
+
+          />
+
+
+          {/* ============================================================
+              FIXED CENTER PIN
+          ============================================================= */}
+
+          <View
+            style={
+              styles.centerPin
+            }
+            pointerEvents="none"
           >
-            <Text
-              style={
-                styles.instructionText
-              }
-            >
-              Tap anywhere on the map
-              to choose a location
-            </Text>
+
+            <Ionicons
+              name="location"
+              size={42}
+              color={GREEN}
+            />
+
           </View>
 
-          {/* CURRENT LOCATION */}
+
+          {/* ============================================================
+              CENTER LABEL
+          ============================================================= */}
+
+          <View
+            style={
+              styles.centerLabel
+            }
+            pointerEvents="none"
+          >
+
+            <Text
+              style={
+                styles.centerLabelText
+              }
+            >
+              Move the map to set location
+            </Text>
+
+          </View>
+
+
+          {/* ============================================================
+              CURRENT LOCATION
+          ============================================================= */}
 
           <Pressable
             style={
-              styles.currentButton
+              styles.locateButton
             }
             onPress={
               useCurrentLocation
             }
+            disabled={
+              locationLoading
+            }
           >
+
             {locationLoading ? (
+
               <ActivityIndicator
                 size="small"
-                color={GREEN}
+                color={
+                  GREEN
+                }
               />
+
             ) : (
+
               <Ionicons
-                name="locate"
-                size={24}
-                color={BLACK}
+                name="locate-outline"
+                size={25}
+                color={
+                  BLACK
+                }
               />
+
             )}
+
           </Pressable>
+
         </View>
 
-        {/* BOTTOM PANEL */}
+
+        {/* ================================================================
+            BOTTOM LOCATION PANEL
+        ================================================================= */}
 
         <View
           style={
             styles.bottomPanel
           }
         >
+
+          <View
+            style={
+              styles.dragHandle
+            }
+          />
+
+
           <Text
             style={
               styles.panelTitle
             }
           >
-            Confirm location
+            Set exact location
           </Text>
+
+
+          <Text
+            style={
+              styles.panelSubtitle
+            }
+          >
+            Move the map until the pin is
+            exactly where you want to be picked
+            up.
+          </Text>
+
+
+          {/* ============================================================
+              LOCATION PREVIEW
+          ============================================================= */}
 
           <View
             style={
-              styles.addressCard
+              styles.locationPreview
             }
           >
+
             <View
               style={
-                styles.addressIcon
+                styles.previewIcon
               }
             >
+
               <Ionicons
                 name="location"
-                size={22}
-                color={GREEN}
+                size={21}
+                color={
+                  GREEN
+                }
               />
+
             </View>
+
 
             <View
               style={
-                styles.addressContent
+                styles.previewText
               }
             >
-              <Text
-                style={
-                  styles.addressTitle
-                }
-              >
-                {loading
-                  ? 'Finding address...'
-                  : 'Selected location'}
-              </Text>
 
               <Text
                 style={
-                  styles.addressText
+                  styles.previewTitle
                 }
-                numberOfLines={2}
               >
-                {address}
+                Map location
               </Text>
+<Text
+  style={
+    styles.previewAddress
+  }
+  numberOfLines={2}
+>
+  {addressLoading
+    ? 'Finding address...'
+    : address || 'Address not available'}
+</Text>
+
             </View>
+
           </View>
+
+
+          {/* ============================================================
+              CONFIRM BUTTON
+          ============================================================= */}
 
           <Pressable
             style={
@@ -635,6 +1037,7 @@ export default function MapPicker() {
               confirmLocation
             }
           >
+
             <Text
               style={
                 styles.confirmText
@@ -643,17 +1046,27 @@ export default function MapPicker() {
               Confirm this location
             </Text>
 
+
             <Ionicons
-              name="arrow-forward"
-              size={22}
-              color={WHITE}
+              name="checkmark"
+              size={23}
+              color={
+                WHITE
+              }
             />
+
           </Pressable>
+
         </View>
+
       </View>
+
     </SafeAreaView>
+
   );
+
 }
+
 
 /*
 |--------------------------------------------------------------------------
@@ -661,175 +1074,471 @@ export default function MapPicker() {
 |--------------------------------------------------------------------------
 */
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: WHITE,
-  },
+const styles =
+  StyleSheet.create({
 
-  container: {
-    flex: 1,
-    backgroundColor: WHITE,
-  },
+    safeArea: {
+      flex: 1,
 
-  header: {
-    height: 62,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
+      backgroundColor:
+        WHITE,
+    },
 
-  backButton: {
-    width: 42,
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 19,
-    fontWeight: '800',
-    color: BLACK,
-  },
+    container: {
+      flex: 1,
 
-  headerSpacer: {
-    width: 42,
-  },
+      backgroundColor:
+        WHITE,
+    },
 
-  mapContainer: {
-    flex: 1,
-    position: 'relative',
-  },
 
-  instruction: {
-    position: 'absolute',
-    top: 16,
-    left: 20,
-    right: 20,
-    alignItems: 'center',
-  },
+    /*
+    |--------------------------------------------------------------------------
+    | HEADER
+    |--------------------------------------------------------------------------
+    */
 
-  instructionText: {
-    backgroundColor:
-      'rgba(255,255,255,0.96)',
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 20,
-    fontSize: 12,
-    fontWeight: '700',
-    color: BLACK,
-  },
+    header: {
+      height: 62,
 
-  marker: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+      paddingHorizontal:
+        20,
 
-  currentButton: {
-    position: 'absolute',
-    right: 18,
-    bottom: 22,
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: WHITE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 6,
-  },
+      flexDirection:
+        'row',
 
-  bottomPanel: {
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 18,
-    backgroundColor: WHITE,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    elevation: 12,
-  },
+      alignItems:
+        'center',
 
-  panelTitle: {
-    fontSize: 19,
-    fontWeight: '800',
-    color: BLACK,
-  },
+      justifyContent:
+        'space-between',
 
-  addressCard: {
-    minHeight: 70,
-    marginTop: 12,
-    paddingHorizontal: 12,
-    borderRadius: 15,
-    backgroundColor: '#F4F7F6',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+      backgroundColor:
+        WHITE,
+    },
 
-  addressIcon: {
-    width: 43,
-    height: 43,
-    borderRadius: 22,
-    backgroundColor: WHITE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 
-  addressContent: {
-    flex: 1,
-    marginLeft: 11,
-  },
+    backButton: {
+      width: 42,
 
-  addressTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: BLACK,
-  },
+      height: 42,
 
-  addressText: {
-    marginTop: 3,
-    fontSize: 12,
-    lineHeight: 17,
-    color: GRAY,
-  },
+      alignItems:
+        'center',
 
-  confirmButton: {
-    height: 56,
-    marginTop: 12,
-    borderRadius: 16,
-    backgroundColor: GREEN,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+      justifyContent:
+        'center',
+    },
 
-  confirmText: {
-    marginRight: 10,
-    fontSize: 16,
-    fontWeight: '800',
-    color: WHITE,
-  },
 
-  errorContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 30,
-  },
+    headerTitle: {
+      flex: 1,
 
-  errorTitle: {
-    marginTop: 15,
-    fontSize: 19,
-    fontWeight: '800',
-    color: BLACK,
-    textAlign: 'center',
-  },
+      textAlign:
+        'center',
 
-  errorText: {
-    marginTop: 8,
-    fontSize: 14,
-    color: GRAY,
-    textAlign: 'center',
-  },
-});
+      fontSize: 19,
+
+      fontWeight:
+        '800',
+
+      color:
+        BLACK,
+    },
+
+
+    headerSpacer: {
+      width: 42,
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | MAP
+    |--------------------------------------------------------------------------
+    */
+
+    mapContainer: {
+      flex: 1,
+
+      position:
+        'relative',
+    },
+
+
+    map: {
+      flex: 1,
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | CENTER PIN
+    |--------------------------------------------------------------------------
+    */
+
+    centerPin: {
+      position:
+        'absolute',
+
+      left:
+        '50%',
+
+      top:
+        '50%',
+
+      marginLeft:
+        -21,
+
+      marginTop:
+        -42,
+
+      width:
+        42,
+
+      height:
+        50,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | LABEL
+    |--------------------------------------------------------------------------
+    */
+
+    centerLabel: {
+      position:
+        'absolute',
+
+      top:
+        20,
+
+      left:
+        25,
+
+      right:
+        25,
+
+      alignItems:
+        'center',
+    },
+
+
+    centerLabelText: {
+      backgroundColor:
+        'rgba(255,255,255,0.94)',
+
+      paddingHorizontal:
+        14,
+
+      paddingVertical:
+        8,
+
+      borderRadius:
+        20,
+
+      overflow:
+        'hidden',
+
+      fontSize:
+        12,
+
+      fontWeight:
+        '600',
+
+      color:
+        BLACK,
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | CURRENT LOCATION
+    |--------------------------------------------------------------------------
+    */
+
+    locateButton: {
+      position:
+        'absolute',
+
+      right:
+        18,
+
+      bottom:
+        18,
+
+      width:
+        50,
+
+      height:
+        50,
+
+      borderRadius:
+        15,
+
+      backgroundColor:
+        WHITE,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+      elevation:
+        6,
+
+      shadowColor:
+        '#000',
+
+      shadowOpacity:
+        0.15,
+
+      shadowRadius:
+        8,
+
+      shadowOffset: {
+        width:
+          0,
+
+        height:
+          3,
+      },
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | BOTTOM PANEL
+    |--------------------------------------------------------------------------
+    */
+
+    bottomPanel: {
+      backgroundColor:
+        WHITE,
+
+      paddingHorizontal:
+        20,
+
+      paddingTop:
+        9,
+
+      paddingBottom:
+        18,
+
+      borderTopLeftRadius:
+        25,
+
+      borderTopRightRadius:
+        25,
+
+      elevation:
+        12,
+
+      shadowColor:
+        '#000',
+
+      shadowOpacity:
+        0.12,
+
+      shadowRadius:
+        14,
+
+      shadowOffset: {
+        width:
+          0,
+
+        height:
+          -4,
+      },
+    },
+
+
+    dragHandle: {
+      alignSelf:
+        'center',
+
+      width:
+        42,
+
+      height:
+        4,
+
+      borderRadius:
+        2,
+
+      backgroundColor:
+        '#D8DDE1',
+
+      marginBottom:
+        14,
+    },
+
+
+    panelTitle: {
+      fontSize:
+        19,
+
+      fontWeight:
+        '800',
+
+      color:
+        BLACK,
+    },
+
+
+    panelSubtitle: {
+      marginTop:
+        5,
+
+      fontSize:
+        13,
+
+      lineHeight:
+        19,
+
+      color:
+        GRAY,
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | LOCATION PREVIEW
+    |--------------------------------------------------------------------------
+    */
+
+    locationPreview: {
+      marginTop:
+        15,
+
+      minHeight:
+        60,
+
+      borderRadius:
+        14,
+
+      backgroundColor:
+        '#F4F7F6',
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      paddingHorizontal:
+        12,
+    },
+
+
+    previewIcon: {
+      width:
+        40,
+
+      height:
+        40,
+
+      borderRadius:
+        20,
+
+      backgroundColor:
+        WHITE,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+    },
+
+
+    previewText: {
+      flex:
+        1,
+
+      marginLeft:
+        10,
+    },
+
+
+    previewTitle: {
+      fontSize:
+        14,
+
+      fontWeight:
+        '700',
+
+      color:
+        BLACK,
+    },
+
+
+    previewAddress: {
+      marginTop:
+        2,
+
+      fontSize:
+        11,
+
+      lineHeight:
+        16,
+
+      color:
+        GRAY,
+    },
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | CONFIRM BUTTON
+    |--------------------------------------------------------------------------
+    */
+
+    confirmButton: {
+      height:
+        55,
+
+      marginTop:
+        12,
+
+      borderRadius:
+        16,
+
+      backgroundColor:
+        GREEN,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+    },
+
+
+    confirmText: {
+      color:
+        WHITE,
+
+      fontSize:
+        16,
+
+      fontWeight:
+        '800',
+
+      marginRight:
+        10,
+    },
+
+  });

@@ -81,8 +81,7 @@ import MapView, {
    ========================================================================= */
 
 const GOOGLE_API_KEY =
-  process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
-
+  process.env.EXPO_PUBLIC_GOOGLE_ROUTES_API_KEY;
 /* =========================================================================
    RIDEX GOOGLE CONFIG END
    ========================================================================= */
