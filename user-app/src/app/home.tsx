@@ -1,3086 +1,459 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ActivityIndicator,
   Pressable,
   SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
-import {
-  useLocalSearchParams,
-  useRouter,
-} from 'expo-router';
-
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-
-import MapView, {
-  Marker,
-  PROVIDER_GOOGLE,
-} from 'react-native-maps';
-/*
-|--------------------------------------------------------------------------
-| RIDEX HOME
-|--------------------------------------------------------------------------
-|
-| IMPORTANT ARCHITECTURE
-|
-| Home is intentionally kept simple.
-|
-| Home is responsible for:
-|
-| 1. Starting the ride flow
-| 2. Showing pickup / destination
-| 3. Showing a map preview
-| 4. Showing quick places
-|
-| Home is NOT responsible for:
-|
-| - Route calculation
-| - Vehicle selection
-| - Fare calculation
-| - Price negotiation
-| - Rider matching
-|
-| Those belong to Trip Details and later booking screens.
-|
-|--------------------------------------------------------------------------
-*/
-
-
-/*
-|--------------------------------------------------------------------------
-| GOOGLE
-|--------------------------------------------------------------------------
-*/
-
-const GOOGLE_API_KEY =
-  process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
-
-
-/*
-|--------------------------------------------------------------------------
-| COLORS
-|--------------------------------------------------------------------------
-*/
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import * as Location from 'expo-location';
 
 const COLORS = {
-
-  green:
-    '#079A4B',
-
-  greenSoft:
-    '#EAF8F1',
-
-  red:
-    '#EF3154',
-
-  black:
-    '#111820',
-
-  gray:
-    '#737C88',
-
-  muted:
-    '#9AA1AA',
-
-  border:
-    '#E7EAED',
-
-  white:
-    '#FFFFFF',
-
-  mapBackground:
-    '#EEF3F2',
-
+  black: '#0A0A0A',
+  blackSoft: '#171717',
+  white: '#FFFFFF',
+  offWhite: '#F7F7F5',
+  softGray: '#E8E8E6',
+  gray: '#707070',
+  muted: '#A1A1A1',
+  gold: '#C9A227',
+  goldSoft: '#F4EED2',
+  mapBackground: '#ECECEA',
 };
-
-
-/*
-|--------------------------------------------------------------------------
-| TYPES
-|--------------------------------------------------------------------------
-*/
 
 type Coordinates = {
-
   lat: number;
-
   lng: number;
-
 };
 
-
-type QuickPlaceType =
-  | 'home'
-  | 'work'
-  | 'recent';
-
-
-/*
-|--------------------------------------------------------------------------
-| HOME SCREEN
-|--------------------------------------------------------------------------
-*/
+type LocationState = {
+  name: string;
+  address: string;
+  coordinates: Coordinates | null;
+};
 
 export default function HomeScreen() {
-
-  const router =
-    useRouter();
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | ROUTE PARAMETERS
-  |--------------------------------------------------------------------------
-  |
-  | These are returned by location-picker.tsx.
-  |
-  */
-
-  const params =
-    useLocalSearchParams<{
-
-      pickupName?: string;
-
-      pickupAddress?: string;
-
-      pickupLat?: string;
-
-      pickupLng?: string;
-
-
-      dropName?: string;
-
-      dropAddress?: string;
-
-      dropLat?: string;
-
-      dropLng?: string;
-
-    }>();
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | MAP LOADING
-  |--------------------------------------------------------------------------
-  */
-
-  const [
-    mapLoaded,
-    setMapLoaded,
-  ] = useState(false);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | VALID PICKUP COORDINATES
-  |--------------------------------------------------------------------------
-  */
-
-  const pickupCoordinates =
-    useMemo<Coordinates | null>(() => {
-
-      const lat =
-        Number(
-          params.pickupLat,
-        );
-
-
-      const lng =
-        Number(
-          params.pickupLng,
-        );
-
-
-      /*
-      |--------------------------------------------------------------------------
-      | Reject invalid coordinates.
-      |--------------------------------------------------------------------------
-      */
-
-      if (
-
-        !Number.isFinite(lat) ||
-
-        !Number.isFinite(lng)
-
-      ) {
-
-        return null;
-
-      }
-
-
-      /*
-      |--------------------------------------------------------------------------
-      | Reject impossible coordinates.
-      |--------------------------------------------------------------------------
-      */
-
-      if (
-
-        lat < -90 ||
-
-        lat > 90 ||
-
-        lng < -180 ||
-
-        lng > 180
-
-      ) {
-
-        return null;
-
-      }
-
-
-      /*
-      |--------------------------------------------------------------------------
-      | 0,0 IS NOT A REAL RIDEX LOCATION
-      |--------------------------------------------------------------------------
-      */
-
-      if (
-
-        lat === 0 &&
-
-        lng === 0
-
-      ) {
-
-        return null;
-
-      }
-
-
-      return {
-
-        lat,
-
-        lng,
-
-      };
-
-    }, [
-
-      params.pickupLat,
-
-      params.pickupLng,
-
-    ]);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | VALID DESTINATION COORDINATES
-  |--------------------------------------------------------------------------
-  */
-
-  const dropCoordinates =
-    useMemo<Coordinates | null>(() => {
-
-      const lat =
-        Number(
-          params.dropLat,
-        );
-
-
-      const lng =
-        Number(
-          params.dropLng,
-        );
-
-
-      if (
-
-        !Number.isFinite(lat) ||
-
-        !Number.isFinite(lng)
-
-      ) {
-
-        return null;
-
-      }
-
-
-      if (
-
-        lat < -90 ||
-
-        lat > 90 ||
-
-        lng < -180 ||
-
-        lng > 180
-
-      ) {
-
-        return null;
-
-      }
-
-
-      if (
-
-        lat === 0 &&
-
-        lng === 0
-
-      ) {
-
-        return null;
-
-      }
-
-
-      return {
-
-        lat,
-
-        lng,
-
-      };
-
-    }, [
-
-      params.dropLat,
-
-      params.dropLng,
-
-    ]);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | LOCATION STATUS
-  |--------------------------------------------------------------------------
-  */
-
-  const hasPickup =
-    Boolean(
-      pickupCoordinates,
-    );
-
-
-  const hasDestination =
-    Boolean(
-      dropCoordinates,
-    );
-
-
-  const hasCompleteTrip =
-    hasPickup &&
-    hasDestination;
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | MAP CENTER
-  |--------------------------------------------------------------------------
-  |
-  | Kanchikacherla is used as the development fallback because this is
-  | currently the RIDEX pilot area.
-  |
-  */
-
-  const mapCenter =
-    pickupCoordinates ||
-
-    dropCoordinates ||
-
-    {
-
-      lat:
-        16.5062,
-
-      lng:
-        80.6480,
-
-    };
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | MAP ZOOM
-  |--------------------------------------------------------------------------
-  */
-
-  const mapZoom =
-    hasCompleteTrip
-
-      ? 13
-
-      : 14;
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | OPEN PICKUP
-  |--------------------------------------------------------------------------
-  */
-
-  const openPickupLocation =
-    useCallback(() => {
-
-      router.push({
-
-        pathname:
-          '/location-picker',
-
-        params: {
-
-          type:
-            'pickup',
-
-        },
-
-      });
-
-    }, [
-
-      router,
-
-    ]);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | OPEN DESTINATION
-  |--------------------------------------------------------------------------
-  |
-  | If pickup already exists, pass it to the picker.
-  |
-  */
-
-  const openDestinationLocation =
-    useCallback(() => {
-
-      router.push({
-
-        pathname:
-          '/location-picker',
-
-        params: {
-
-          type:
-            'drop',
-
-
-          pickupName:
-            params.pickupName ||
-            '',
-
-
-          pickupAddress:
-            params.pickupAddress ||
-            '',
-
-
-          pickupLat:
-            params.pickupLat ||
-            '',
-
-
-          pickupLng:
-            params.pickupLng ||
-            '',
-
-        },
-
-      });
-
-    }, [
-
-      router,
-
-      params.pickupName,
-
-      params.pickupAddress,
-
-      params.pickupLat,
-
-      params.pickupLng,
-
-    ]);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | REVIEW TRIP
-  |--------------------------------------------------------------------------
-  |
-  | Once both locations exist, open the new Trip Details screen.
-  |
-  */
-
-  const openTripDetails =
-    useCallback(() => {
-
-      if (
-        !hasCompleteTrip
-      ) {
-
-        /*
-        | If destination isn't selected, start destination flow.
-        */
-
-        openDestinationLocation();
-
+  const router = useRouter();
+
+  const params = useLocalSearchParams<{
+    pickupName?: string;
+    pickupAddress?: string;
+    pickupLat?: string;
+    pickupLng?: string;
+    dropName?: string;
+    dropAddress?: string;
+    dropLat?: string;
+    dropLng?: string;
+  }>();
+
+  const [pickup, setPickup] = useState<LocationState>({
+    name: params.pickupName || 'Current location',
+    address: params.pickupAddress || '',
+    coordinates: parseCoordinates(params.pickupLat, params.pickupLng),
+  });
+
+  const [loadingPickup, setLoadingPickup] = useState(false);
+  const [locationError, setLocationError] = useState('');
+
+  const destinationCoordinates = useMemo(
+    () => parseCoordinates(params.dropLat, params.dropLng),
+    [params.dropLat, params.dropLng],
+  );
+
+  const hasDestination = Boolean(destinationCoordinates);
+
+  const mapCenter = useMemo<Coordinates>(() => {
+    if (pickup.coordinates) return pickup.coordinates;
+    if (destinationCoordinates) return destinationCoordinates;
+    return { lat: 16.5062, lng: 80.6480 };
+  }, [pickup.coordinates, destinationCoordinates]);
+
+  const loadCurrentPickup = useCallback(async () => {
+    try {
+      setLoadingPickup(true);
+      setLocationError('');
+
+      const permission = await Location.requestForegroundPermissionsAsync();
+
+      if (permission.status !== Location.PermissionStatus.GRANTED) {
+        setLocationError('Location permission is needed to find your pickup point.');
         return;
-
       }
 
-
-      router.push({
-
-        pathname:
-          '/trip-details',
-
-        params: {
-
-          pickupName:
-            params.pickupName ||
-            'Current location',
-
-          pickupAddress:
-            params.pickupAddress ||
-            '',
-
-          pickupLat:
-            params.pickupLat ||
-            '',
-
-          pickupLng:
-            params.pickupLng ||
-            '',
-
-
-          dropName:
-            params.dropName ||
-            'Destination',
-
-          dropAddress:
-            params.dropAddress ||
-            '',
-
-          dropLat:
-            params.dropLat ||
-            '',
-
-          dropLng:
-            params.dropLng ||
-            '',
-
-        },
-
+      const current = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
       });
 
-    }, [
+      const latitude = current.coords.latitude;
+      const longitude = current.coords.longitude;
 
-      router,
+      let address = 'Current location';
+      let name = 'Current location';
 
-      hasCompleteTrip,
+      try {
+        const places = await Location.reverseGeocodeAsync({ latitude, longitude });
 
-      openDestinationLocation,
+        if (places.length > 0) {
+          const place = places[0];
+          const parts = [
+            place.name,
+            place.street,
+            place.district,
+            place.city,
+            place.region,
+            place.postalCode,
+          ].filter(Boolean);
 
-      params.pickupName,
+          if (parts.length > 0) {
+            address = parts.join(', ');
+          }
 
-      params.pickupAddress,
+          name = place.name || place.street || place.city || 'Current location';
+        }
+      } catch (error) {
+        console.warn('RIDEX: Home reverse geocoding failed:', error);
+      }
 
-      params.pickupLat,
+      console.log('RIDEX: Home current GPS location:', latitude, longitude);
 
-      params.pickupLng,
+      setPickup({
+        name,
+        address,
+        coordinates: { lat: latitude, lng: longitude },
+      });
+    } catch (error) {
+      console.error('RIDEX: Home current location error:', error);
+      setLocationError('Unable to find your current location.');
+    } finally {
+      setLoadingPickup(false);
+    }
+  }, []);
 
-      params.dropName,
+  useEffect(() => {
+    if (params.pickupLat && params.pickupLng) {
+      setPickup({
+        name: params.pickupName || 'Current location',
+        address: params.pickupAddress || '',
+        coordinates: parseCoordinates(params.pickupLat, params.pickupLng),
+      });
+      return;
+    }
 
-      params.dropAddress,
+    loadCurrentPickup();
+  }, [
+    loadCurrentPickup,
+    params.pickupAddress,
+    params.pickupLat,
+    params.pickupLng,
+    params.pickupName,
+  ]);
 
-      params.dropLat,
+  const openPickupLocation = useCallback(() => {
+    router.push({
+      pathname: '/location-picker',
+      params: { type: 'pickup' },
+    });
+  }, [router]);
 
-      params.dropLng,
+  const openDestinationLocation = useCallback(() => {
+    router.push({
+      pathname: '/location-picker',
+      params: {
+        type: 'drop',
+        pickupName: pickup.name,
+        pickupAddress: pickup.address,
+        pickupLat: pickup.coordinates ? String(pickup.coordinates.lat) : '',
+        pickupLng: pickup.coordinates ? String(pickup.coordinates.lng) : '',
+      },
+    });
+  }, [router, pickup]);
 
-    ]);
+  const openTripDetails = useCallback(() => {
+    if (!pickup.coordinates) {
+      loadCurrentPickup();
+      return;
+    }
 
-
-  /*
-  |--------------------------------------------------------------------------
-  | CHANGE PICKUP
-  |--------------------------------------------------------------------------
-  */
-
-  const changePickup =
-    useCallback(() => {
-
-      openPickupLocation();
-
-    }, [
-
-      openPickupLocation,
-
-    ]);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | CHANGE DESTINATION
-  |--------------------------------------------------------------------------
-  */
-
-  const changeDestination =
-    useCallback(() => {
-
+    if (!destinationCoordinates) {
       openDestinationLocation();
+      return;
+    }
 
-    }, [
-
-      openDestinationLocation,
-
-    ]);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | CURRENT LOCATION
-  |--------------------------------------------------------------------------
-  |
-  | The actual current-location functionality already lives in the
-  | location picker. Home simply opens pickup selection.
-  |
-  */
-
-  const handleLocate =
-    useCallback(() => {
-
-      openPickupLocation();
-
-    }, [
-
-      openPickupLocation,
-
-    ]);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | QUICK PLACES
-  |--------------------------------------------------------------------------
-  */
-
-  const handleQuickPlace =
-    useCallback(
-      (
-        type: QuickPlaceType,
-      ) => {
-
-        /*
-        |--------------------------------------------------------------------------
-        | Home / Work
-        |--------------------------------------------------------------------------
-        |
-        | Until saved places are implemented, open destination picker.
-        |
-        */
-
-        if (
-
-          type === 'home' ||
-
-          type === 'work'
-
-        ) {
-
-          openDestinationLocation();
-
-          return;
-
-        }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Recent
-        |--------------------------------------------------------------------------
-        |
-        | Recent rides screen will be connected later.
-        |
-        */
-
-        if (
-          type === 'recent'
-        ) {
-
-          return;
-
-        }
-
+    router.push({
+      pathname: '/trip-details',
+      params: {
+        pickupName: pickup.name,
+        pickupAddress: pickup.address,
+        pickupLat: String(pickup.coordinates.lat),
+        pickupLng: String(pickup.coordinates.lng),
+        dropName: params.dropName || 'Destination',
+        dropAddress: params.dropAddress || '',
+        dropLat: String(destinationCoordinates.lat),
+        dropLng: String(destinationCoordinates.lng),
       },
-
-      [
-
-        openDestinationLocation,
-
-      ],
-    );
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | NOTIFICATIONS
-  |--------------------------------------------------------------------------
-  */
-
-  const handleNotifications =
-    useCallback(() => {
-
-      /*
-      | Future:
-      |
-      | router.push('/notifications');
-      |
-      */
-
-    }, []);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | MENU
-  |--------------------------------------------------------------------------
-  */
-
-  const handleMenu =
-    useCallback(() => {
-
-      /*
-      | Future:
-      |
-      | router.push('/menu');
-      |
-      */
-
-    }, []);
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | BOTTOM NAVIGATION
-  |--------------------------------------------------------------------------
-  */
-
-  const handleBottomNavigation =
-    useCallback(
-      (
-        screen: string,
-      ) => {
-
-        switch (
-          screen
-        ) {
-
-          case 'home':
-
-            break;
-
-
-          case 'rides':
-
-            /*
-            | Future:
-            | router.push('/rides');
-            */
-
-            break;
-
-
-          case 'payments':
-
-            /*
-            | Future:
-            | router.push('/payments');
-            */
-
-            break;
-
-
-          case 'profile':
-
-            /*
-            | Future:
-            | router.push('/profile');
-            */
-
-            break;
-
-        }
-
-      },
-
-      [],
-    );
-
-
-  /*
-  |--------------------------------------------------------------------------
-  | SCREEN
-  |--------------------------------------------------------------------------
-  */
+    });
+  }, [
+    destinationCoordinates,
+    loadCurrentPickup,
+    openDestinationLocation,
+    params.dropAddress,
+    params.dropName,
+    pickup,
+    router,
+  ]);
 
   return (
-
-    <SafeAreaView
-      style={
-        styles.safeArea
-      }
-    >
-
-      <View
-        style={
-          styles.screen
-        }
-      >
-
-
-        {/* ================================================================
-            HEADER
-        ================================================================= */}
-
-        <View
-          style={
-            styles.header
-          }
-        >
-
-          <View
-            style={
-              styles.headerText
-            }
-          >
-
-            <Text
-              style={
-                styles.greeting
-              }
-            >
-              Good morning 👋
-            </Text>
-
-
-            <Text
-              style={
-                styles.headerSubtitle
-              }
-            >
-              Where are you going today?
-            </Text>
-
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.screen}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.brand}>RIDEX</Text>
+            <Text style={styles.tagline}>Where are you going?</Text>
           </View>
-
-
-          <View
-            style={
-              styles.headerActions
-            }
-          >
-
-            {/* NOTIFICATIONS */}
-
-            <Pressable
-              style={
-                styles.headerButton
-              }
-
-              onPress={
-                handleNotifications
-              }
-
-              hitSlop={
-                8
-              }
-            >
-
-              <Ionicons
-                name="notifications-outline"
-                size={25}
-                color={
-                  COLORS.black
-                }
-              />
-
-
-              <View
-                style={
-                  styles.notificationDot
-                }
-              />
-
-            </Pressable>
-
-
-            {/* MENU */}
-
-            <Pressable
-              style={
-                styles.headerButton
-              }
-
-              onPress={
-                handleMenu
-              }
-
-              hitSlop={
-                8
-              }
-            >
-
-              <Ionicons
-                name="menu-outline"
-                size={30}
-                color={
-                  COLORS.black
-                }
-              />
-
-            </Pressable>
-
+          <View style={styles.headerBadge}>
+            <Ionicons name="car-outline" size={20} color={COLORS.white} />
           </View>
-
         </View>
 
-
-        {/* ================================================================
-            MAIN SCROLL
-        ================================================================= */}
-
-        <ScrollView
-
-          showsVerticalScrollIndicator={
-            false
-          }
-
-          contentContainerStyle={
-            styles.scrollContent
-          }
-
-        >
-
-
-          {/* ================================================================
-              LOCATION CARD
-          ================================================================= */}
-
-          <View
-            style={
-              styles.bookingCard
-            }
-          >
-
-            {/* PICKUP */}
-
-            <Pressable
-              style={
-                styles.locationRow
-              }
-
-              onPress={
-                changePickup
-              }
-            >
-
-              <View
-                style={[
-                  styles.locationMarker,
-
-                  styles.pickupMarker,
-                ]}
-              >
-
-                <View
-                  style={
-                    styles.markerCenter
-                  }
-                />
-
-              </View>
-
-
-              <View
-                style={
-                  styles.locationContent
-                }
-              >
-
-                <Text
-                  style={
-                    styles.pickupLabel
-                  }
-                >
-                  Pickup
-                </Text>
-
-
-                <Text
-                  style={
-                    styles.locationName
-                  }
-
-                  numberOfLines={
-                    1
-                  }
-                >
-                  {params.pickupName ||
-                    'Current location'}
-                </Text>
-
-
-                {params.pickupAddress && (
-
-                  <Text
-                    style={
-                      styles.locationAddress
-                    }
-
-                    numberOfLines={
-                      1
-                    }
-                  >
-                    {params.pickupAddress}
-                  </Text>
-
-                )}
-
-              </View>
-
-
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={
-                  COLORS.muted
-                }
-              />
-
-            </Pressable>
-
-
-            {/* CONNECTOR */}
-
-            <View
-              style={
-                styles.locationConnector
-              }
-            />
-
-
-            {/* DESTINATION */}
-
-            <Pressable
-              style={
-                styles.locationRow
-              }
-
-              onPress={
-                changeDestination
-              }
-            >
-
-              <View
-                style={[
-                  styles.locationMarker,
-
-                  styles.dropMarker,
-                ]}
-              >
-
-                <View
-                  style={
-                    styles.markerCenter
-                  }
-                />
-
-              </View>
-
-
-              <View
-                style={
-                  styles.locationContent
-                }
-              >
-
-                <Text
-                  style={
-                    styles.dropLabel
-                  }
-                >
-                  Destination
-                </Text>
-
-
-                <Text
-                  style={[
-                    styles.locationName,
-
-                    !params.dropName &&
-                      styles.placeholderText,
-
-                  ]}
-
-                  numberOfLines={
-                    1
-                  }
-                >
-                  {params.dropName ||
-                    'Where are you going?'}
-                </Text>
-
-
-                {params.dropAddress && (
-
-                  <Text
-                    style={
-                      styles.locationAddress
-                    }
-
-                    numberOfLines={
-                      1
-                    }
-                  >
-                    {params.dropAddress}
-                  </Text>
-
-                )}
-
-              </View>
-
-
-              <View
-                style={
-                  styles.destinationSearch
-                }
-              >
-
-                <Ionicons
-                  name={
-                    params.dropName
-                      ? 'chevron-forward'
-                      : 'search'
-                  }
-
-                  size={
-                    params.dropName
-                      ? 20
-                      : 20
-                  }
-
-                  color={
-                    params.dropName
-                      ? COLORS.muted
-                      : COLORS.white
-                  }
-
-                />
-
-              </View>
-
-            </Pressable>
-
-          </View>
-
-
-          {/* ================================================================
-              MAP
-          ================================================================= */}
-
-          <View
-            style={
-              styles.mapContainer
-            }
-          >
-
-           <MapView
-  style={{
-  flex: 1,
-}}
-  provider={PROVIDER_GOOGLE}
-  initialRegion={{
-    latitude: mapCenter.lat,
-    longitude: mapCenter.lng,
-    latitudeDelta:
-      hasCompleteTrip ? 0.08 : 0.06,
-    longitudeDelta:
-      hasCompleteTrip ? 0.08 : 0.06,
-  }}
-  onMapReady={() => {
-    setMapLoaded(true);
-  }}
-  showsCompass={false}
-  showsScale={false}
-  showsBuildings={false}
-  showsIndoors={false}
-  toolbarEnabled={false}
-  zoomEnabled
-  scrollEnabled
-  rotateEnabled={false}
-  pitchEnabled={false}
->
-
-  {/* PICKUP */}
-
-  {pickupCoordinates && (
-
-    <Marker
-      coordinate={{
-        latitude:
-          pickupCoordinates.lat,
-
-        longitude:
-          pickupCoordinates.lng,
-      }}
-      anchor={{
-        x: 0.5,
-        y: 0.5,
-      }}
-    >
-
-      <View
-        style={
-          styles.mapPickup
-        }
-      >
-
-        <View
-          style={
-            styles.mapPickupDot
-          }
-        />
-
-      </View>
-
-    </Marker>
-
-  )}
-
-
-  {/* DESTINATION */}
-
-  {dropCoordinates && (
-
-    <Marker
-      coordinate={{
-        latitude:
-          dropCoordinates.lat,
-
-        longitude:
-          dropCoordinates.lng,
-      }}
-      anchor={{
-        x: 0.5,
-        y: 0.5,
-      }}
-    >
-
-      <View
-        style={
-          styles.mapDrop
-        }
-      >
-
-        <Ionicons
-          name="location"
-          size={36}
-          color={
-            COLORS.red
-          }
-        />
-
-      </View>
-
-    </Marker>
-
-  )}
-
-</MapView>
-
-
-            {/* MAP LOADING */}
-
-            {!mapLoaded &&
-              GOOGLE_API_KEY && (
-
-              <View
-                style={
-                  styles.mapLoading
-                }
-              >
-
-                <ActivityIndicator
-                  size="small"
-                  color={
-                    COLORS.green
-                  }
-                />
-
-              </View>
-
-            )}
-
-
-            {/* LOCATE BUTTON */}
-
-            <Pressable
-              style={
-                styles.locateButton
-              }
-
-              onPress={
-                handleLocate
-              }
-
-              hitSlop={
-                8
-              }
-            >
-
-              <Ionicons
-                name="locate-outline"
-                size={25}
-                color={
-                  COLORS.black
-                }
-              />
-
-            </Pressable>
-
-
-            {/* MAP LABEL */}
-
-            {!hasCompleteTrip && (
-
-              <View
-                style={
-                  styles.mapHint
-                }
-              >
-
-                <Ionicons
-                  name="navigate-outline"
-                  size={16}
-                  color={
-                    COLORS.green
-                  }
-                />
-
-
-                <Text
-                  style={
-                    styles.mapHintText
-                  }
-                >
-                  Choose a destination to plan your ride
-                </Text>
-
-              </View>
-
-            )}
-
-          </View>
-
-
-          {/* ================================================================
-              QUICK PLACES
-          ================================================================= */}
-
-          <View
-            style={
-              styles.sectionHeader
-            }
-          >
-
-            <Text
-              style={
-                styles.sectionTitle
-              }
-            >
-              Quick places
-            </Text>
-
-
-            <Pressable
-              hitSlop={
-                8
-              }
-            >
-
-              <Text
-                style={
-                  styles.manageText
-                }
-              >
-                Manage
-              </Text>
-
-            </Pressable>
-
-          </View>
-
-
-          <View
-            style={
-              styles.quickPlaces
-            }
-          >
-
-            {/* HOME */}
-
-            <QuickPlace
-
-              icon="home-outline"
-
-              title="Home"
-
-              subtitle="Add address"
-
-              onPress={() =>
-                handleQuickPlace(
-                  'home',
-                )
-              }
-
-            />
-
-
-            {/* WORK */}
-
-            <QuickPlace
-
-              icon="briefcase-outline"
-
-              title="Work"
-
-              subtitle="Add address"
-
-              onPress={() =>
-                handleQuickPlace(
-                  'work',
-                )
-              }
-
-            />
-
-
-            {/* RECENT */}
-
-            <QuickPlace
-
-              icon="time-outline"
-
-              title="Recent"
-
-              subtitle="View places"
-
-              onPress={() =>
-                handleQuickPlace(
-                  'recent',
-                )
-              }
-
-            />
-
-          </View>
-
-
-          {/* ================================================================
-              RIDEX VALUE BANNER
-          ================================================================= */}
-
-          <View
-            style={
-              styles.valueBanner
-            }
-          >
-
-            <View
-              style={
-                styles.valueIcon
-              }
-            >
-
-              <Ionicons
-                name="shield-checkmark-outline"
-                size={27}
-                color={
-                  COLORS.green
-                }
-              />
-
+        <View style={styles.content}>
+          <Text style={styles.question}>Where are you going?</Text>
+          <Text style={styles.helper}>We’ll find your pickup automatically.</Text>
+
+          <View style={styles.locationCard}>
+            <View style={styles.routeRail}>
+              <View style={styles.pickupDot} />
+              <View style={styles.routeLine} />
+              <View style={styles.dropDot} />
             </View>
 
+            <View style={styles.locationBody}>
+              <View style={styles.locationBlock}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>FROM</Text>
+                  <Pressable onPress={openPickupLocation} hitSlop={8}>
+                    <Text style={styles.changeText}>Change pickup</Text>
+                  </Pressable>
+                </View>
 
-            <View
-              style={
-                styles.valueContent
-              }
-            >
+                <Pressable onPress={openPickupLocation} style={styles.valueRow}>
+                  <View style={styles.valueTextWrap}>
+                    <Text style={styles.valueTitle} numberOfLines={1}>
+                      {loadingPickup ? 'Finding your location…' : pickup.name}
+                    </Text>
+                    <Text style={styles.valueAddress} numberOfLines={2}>
+                      {loadingPickup ? 'Please wait a moment' : pickup.address || 'Current location'}
+                    </Text>
+                  </View>
+                  {loadingPickup ? (
+                    <ActivityIndicator size="small" color={COLORS.gold} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={22} color={COLORS.muted} />
+                  )}
+                </Pressable>
+              </View>
 
-              <Text
-                style={
-                  styles.valueTitle
-                }
-              >
-                You set the price.
-              </Text>
+              <View style={styles.separator} />
 
-
-              <Text
-                style={
-                  styles.valueSubtitle
-                }
-              >
-                Offer your fare and choose the best rider.
-              </Text>
-
+              <View style={styles.locationBlock}>
+                <Text style={styles.label}>TO</Text>
+                <Pressable onPress={openDestinationLocation} style={styles.destinationButton}>
+                  <View style={styles.destinationIcon}>
+                    <Ionicons name="search" size={20} color={COLORS.white} />
+                  </View>
+                  <View style={styles.valueTextWrap}>
+                    <Text
+                      style={[styles.valueTitle, !params.dropName && styles.placeholderTitle]}
+                      numberOfLines={1}
+                    >
+                      {params.dropName || 'Choose destination'}
+                    </Text>
+                    <Text
+                      style={[styles.valueAddress, !params.dropAddress && styles.placeholderAddress]}
+                      numberOfLines={1}
+                    >
+                      {params.dropAddress || 'Tap here to select where you want to go'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={22} color={COLORS.muted} />
+                </Pressable>
+              </View>
             </View>
-
-
-            <Ionicons
-              name="arrow-forward"
-              size={23}
-              color={
-                COLORS.black
-              }
-            />
-
           </View>
 
+          {locationError ? (
+            <Pressable onPress={loadCurrentPickup} style={styles.errorCard}>
+              <Ionicons name="location-outline" size={19} color={COLORS.black} />
+              <Text style={styles.errorText}>{locationError} Tap to retry.</Text>
+            </Pressable>
+          ) : null}
 
-          {/* ================================================================
-              REVIEW / BOOK BUTTON
-          ================================================================= */}
+          <View style={styles.mapCard}>
+            <MapView
+              style={StyleSheet.absoluteFillObject}
+              provider={PROVIDER_GOOGLE}
+              initialRegion={{
+                latitude: mapCenter.lat,
+                longitude: mapCenter.lng,
+                latitudeDelta: 0.055,
+                longitudeDelta: 0.055,
+              }}
+              showsCompass={false}
+              showsScale={false}
+              showsBuildings={false}
+              showsIndoors={false}
+              toolbarEnabled={false}
+              zoomEnabled
+              scrollEnabled
+              rotateEnabled={false}
+              pitchEnabled={false}
+            >
+              {pickup.coordinates ? (
+                <Marker
+                  coordinate={{
+                    latitude: pickup.coordinates.lat,
+                    longitude: pickup.coordinates.lng,
+                  }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                >
+                  <View style={styles.mapPickupMarker}>
+                    <View style={styles.mapPickupCenter} />
+                  </View>
+                </Marker>
+              ) : null}
+
+              {destinationCoordinates ? (
+                <Marker
+                  coordinate={{
+                    latitude: destinationCoordinates.lat,
+                    longitude: destinationCoordinates.lng,
+                  }}
+                  anchor={{ x: 0.5, y: 1 }}
+                >
+                  <Ionicons name="location" size={38} color={COLORS.black} />
+                </Marker>
+              ) : null}
+            </MapView>
+
+            <View style={styles.mapLabel}>
+              <Ionicons name="navigate-outline" size={16} color={COLORS.gold} />
+              <Text style={styles.mapLabelText}>
+                {hasDestination ? 'Route ready' : 'Your pickup location'}
+              </Text>
+            </View>
+          </View>
 
           <Pressable
-            style={[
-              styles.bookButton,
-
-              !hasCompleteTrip &&
-                styles.bookButtonInactive,
-
-            ]}
-
-            onPress={
-              openTripDetails
-            }
+            style={styles.primaryButton}
+            onPress={openTripDetails}
+            disabled={loadingPickup}
           >
-
-            <Text
-              style={
-                styles.bookButtonText
-              }
-            >
-              {hasCompleteTrip
-
-                ? 'Review Trip'
-
-                : 'Book a Ride'
-
-              }
+            <Text style={styles.primaryButtonText}>
+              {hasDestination ? 'Continue' : 'Choose destination'}
             </Text>
-
-
-            <Ionicons
-              name="arrow-forward"
-              size={24}
-              color={
-                COLORS.white
-              }
-            />
-
+            <Ionicons name="arrow-forward" size={24} color={COLORS.white} />
           </Pressable>
 
-
-          {/* ================================================================
-              SMALL TRUST MESSAGE
-          ================================================================= */}
-
-          <View
-            style={
-              styles.trustRow
-            }
-          >
-
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={16}
-              color={
-                COLORS.green
-              }
-            />
-
-
-            <Text
-              style={
-                styles.trustText
-              }
-            >
-              Safe rides • Transparent pricing
-            </Text>
-
-          </View>
-
-
-        </ScrollView>
-
-
-        {/* ================================================================
-            BOTTOM NAVIGATION
-        ================================================================= */}
-
-        <View
-          style={
-            styles.bottomNav
-          }
-        >
-
-          <BottomItem
-
-            icon="home"
-
-            label="Home"
-
-            active
-
-            onPress={() =>
-              handleBottomNavigation(
-                'home',
-              )
-            }
-
-          />
-
-
-          <BottomItem
-
-            icon="time-outline"
-
-            label="Rides"
-
-            onPress={() =>
-              handleBottomNavigation(
-                'rides',
-              )
-            }
-
-          />
-
-
-          {/* BOOK RIDE CENTER BUTTON */}
-
-          <View
-            style={
-              styles.bookContainer
-            }
-          >
-
-            <Pressable
-              style={
-                styles.bookCircle
-              }
-
-              onPress={
-                openTripDetails
-              }
-            >
-
-              <Ionicons
-                name="bicycle"
-                size={29}
-                color={
-                  COLORS.white
-                }
-              />
-
-            </Pressable>
-
-
-            <Text
-              style={
-                styles.bookLabel
-              }
-            >
-              Book Ride
-            </Text>
-
-          </View>
-
-
-          <BottomItem
-
-            icon="wallet-outline"
-
-            label="Payments"
-
-            onPress={() =>
-              handleBottomNavigation(
-                'payments',
-              )
-            }
-
-          />
-
-
-          <BottomItem
-
-            icon="person-outline"
-
-            label="Profile"
-
-            onPress={() =>
-              handleBottomNavigation(
-                'profile',
-              )
-            }
-
-          />
-
+          <Text style={styles.footerText}>Simple booking. Clear pricing. Your choice.</Text>
         </View>
-
       </View>
-
     </SafeAreaView>
-
   );
-
 }
 
+function parseCoordinates(lat?: string, lng?: string): Coordinates | null {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
 
-/*
-|--------------------------------------------------------------------------
-| QUICK PLACE COMPONENT
-|--------------------------------------------------------------------------
-*/
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+  if (latitude === 0 && longitude === 0) return null;
 
-function QuickPlace({
-
-  icon,
-
-  title,
-
-  subtitle,
-
-  onPress,
-
-}: {
-
-  icon: any;
-
-  title: string;
-
-  subtitle: string;
-
-  onPress: () => void;
-
-}) {
-
-  return (
-
-    <Pressable
-
-      style={
-        styles.quickPlace
-      }
-
-      onPress={
-        onPress
-      }
-
-    >
-
-      <View
-        style={
-          styles.quickIcon
-        }
-      >
-
-        <Ionicons
-          name={
-            icon
-          }
-
-          size={22}
-
-          color={
-            COLORS.green
-          }
-
-        />
-
-      </View>
-
-
-      <View
-        style={
-          styles.quickContent
-        }
-      >
-
-        <Text
-          style={
-            styles.quickTitle
-          }
-        >
-          {title}
-        </Text>
-
-
-        <Text
-          style={
-            styles.quickSubtitle
-          }
-        >
-          {subtitle}
-        </Text>
-
-      </View>
-
-    </Pressable>
-
-  );
-
+  return { lat: latitude, lng: longitude };
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| BOTTOM NAV ITEM
-|--------------------------------------------------------------------------
-*/
-
-function BottomItem({
-
-  icon,
-
-  label,
-
-  active = false,
-
-  onPress,
-
-}: {
-
-  icon: any;
-
-  label: string;
-
-  active?: boolean;
-
-  onPress: () => void;
-
-}) {
-
-  return (
-
-    <Pressable
-
-      style={
-        styles.bottomItem
-      }
-
-      onPress={
-        onPress
-      }
-
-    >
-
-      <Ionicons
-
-        name={
-          icon
-        }
-
-        size={24}
-
-        color={
-          active
-
-            ? COLORS.green
-
-            : '#777D84'
-        }
-
-      />
-
-
-      <Text
-        style={[
-          styles.bottomLabel,
-
-          active &&
-            styles.bottomLabelActive,
-
-        ]}
-      >
-        {label}
-      </Text>
-
-
-      {active && (
-
-        <View
-          style={
-            styles.bottomIndicator
-          }
-        />
-
-      )}
-
-    </Pressable>
-
-  );
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| STYLES
-|--------------------------------------------------------------------------
-*/
-
-const styles =
-  StyleSheet.create({
-
-    /*
-    |--------------------------------------------------------------------------
-    | SCREEN
-    |--------------------------------------------------------------------------
-    */
-
-    safeArea: {
-
-      flex: 1,
-
-      backgroundColor:
-        COLORS.white,
-
-    },
-
-
-    screen: {
-
-      flex: 1,
-
-      backgroundColor:
-        COLORS.white,
-
-    },
-
-
-    scrollContent: {
-
-      paddingHorizontal: 18,
-
-      paddingBottom: 110,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | HEADER
-    |--------------------------------------------------------------------------
-    */
-
-    header: {
-
-      height: 78,
-
-      paddingHorizontal: 20,
-
-      flexDirection:
-        'row',
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'space-between',
-
-      backgroundColor:
-        COLORS.white,
-
-    },
-
-
-    headerText: {
-
-      flex: 1,
-
-    },
-
-
-    greeting: {
-
-      fontSize: 23,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.black,
-
-      letterSpacing:
-        -0.4,
-
-    },
-
-
-    headerSubtitle: {
-
-      marginTop: 4,
-
-      fontSize: 14,
-
-      color:
-        COLORS.gray,
-
-    },
-
-
-    headerActions: {
-
-      flexDirection:
-        'row',
-
-      alignItems:
-        'center',
-
-    },
-
-
-    headerButton: {
-
-      width: 42,
-
-      height: 42,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-      marginLeft: 4,
-
-    },
-
-
-    notificationDot: {
-
-      position:
-        'absolute',
-
-      right: 6,
-
-      top: 5,
-
-      width: 9,
-
-      height: 9,
-
-      borderRadius: 5,
-
-      backgroundColor:
-        COLORS.green,
-
-      borderWidth: 1.5,
-
-      borderColor:
-        COLORS.white,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | BOOKING CARD
-    |--------------------------------------------------------------------------
-    */
-
-    bookingCard: {
-
-      backgroundColor:
-        COLORS.white,
-
-      borderRadius: 23,
-
-      paddingHorizontal: 16,
-
-      paddingVertical: 12,
-
-      shadowColor:
-        '#000',
-
-      shadowOpacity:
-        0.09,
-
-      shadowRadius:
-        15,
-
-      shadowOffset: {
-
-        width: 0,
-
-        height: 5,
-
-      },
-
-      elevation: 5,
-
-      zIndex: 10,
-
-    },
-
-
-    locationRow: {
-
-      minHeight: 65,
-
-      flexDirection:
-        'row',
-
-      alignItems:
-        'center',
-
-    },
-
-
-    locationMarker: {
-
-      width: 30,
-
-      height: 30,
-
-      borderRadius: 15,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    pickupMarker: {
-
-      backgroundColor:
-        COLORS.green,
-
-    },
-
-
-    dropMarker: {
-
-      backgroundColor:
-        COLORS.red,
-
-    },
-
-
-    markerCenter: {
-
-      width: 9,
-
-      height: 9,
-
-      borderRadius: 5,
-
-      backgroundColor:
-        COLORS.white,
-
-    },
-
-
-    locationContent: {
-
-      flex: 1,
-
-      marginLeft: 13,
-
-      marginRight: 8,
-
-    },
-
-
-    pickupLabel: {
-
-      fontSize: 13,
-
-      fontWeight:
-        '700',
-
-      color:
-        COLORS.green,
-
-    },
-
-
-    dropLabel: {
-
-      fontSize: 13,
-
-      fontWeight:
-        '700',
-
-      color:
-        COLORS.red,
-
-    },
-
-
-    locationName: {
-
-      marginTop: 3,
-
-      fontSize: 16,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.black,
-
-    },
-
-
-    placeholderText: {
-
-      color:
-        COLORS.muted,
-
-      fontWeight:
-        '600',
-
-    },
-
-
-    locationAddress: {
-
-      marginTop: 2,
-
-      fontSize: 12,
-
-      color:
-        COLORS.gray,
-
-    },
-
-
-    locationConnector: {
-
-      height: 20,
-
-      width: 2,
-
-      marginLeft: 14,
-
-      backgroundColor:
-        '#E2E6E8',
-
-    },
-
-
-    destinationSearch: {
-
-      width: 43,
-
-      height: 43,
-
-      borderRadius: 14,
-
-      backgroundColor:
-        COLORS.green,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | MAP
-    |--------------------------------------------------------------------------
-    */
-
-    mapContainer: {
-
-      height: 255,
-
-      marginTop: 13,
-
-      borderRadius: 23,
-
-      overflow:
-        'hidden',
-
-      backgroundColor:
-        COLORS.mapBackground,
-
-      position:
-        'relative',
-
-    },
-
-
-    mapLoading: {
-
-      position:
-        'absolute',
-
-      top: 15,
-
-      left: 15,
-
-      width: 38,
-
-      height: 38,
-
-      borderRadius: 19,
-
-      backgroundColor:
-        COLORS.white,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-      shadowColor:
-        '#000',
-
-      shadowOpacity:
-        0.1,
-
-      shadowRadius:
-        6,
-
-      elevation: 3,
-
-    },
-
-
-    mapPickup: {
-
-      width: 32,
-
-      height: 32,
-
-      borderRadius: 16,
-
-      backgroundColor:
-        COLORS.white,
-
-      borderWidth: 3,
-
-      borderColor:
-        COLORS.green,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    mapPickupDot: {
-
-      width: 11,
-
-      height: 11,
-
-      borderRadius: 6,
-
-      backgroundColor:
-        COLORS.green,
-
-    },
-
-
-    mapDrop: {
-
-      width: 42,
-
-      height: 42,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    locateButton: {
-
-      position:
-        'absolute',
-
-      right: 14,
-
-      bottom: 14,
-
-      width: 49,
-
-      height: 49,
-
-      borderRadius: 16,
-
-      backgroundColor:
-        COLORS.white,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-      shadowColor:
-        '#000',
-
-      shadowOpacity:
-        0.12,
-
-      shadowRadius:
-        8,
-
-      shadowOffset: {
-
-        width: 0,
-
-        height: 3,
-
-      },
-
-      elevation: 5,
-
-    },
-
-
-    mapHint: {
-
-      position:
-        'absolute',
-
-      top: 14,
-
-      left: 14,
-
-      right: 75,
-
-      minHeight: 39,
-
-      borderRadius: 20,
-
-      paddingHorizontal: 13,
-
-      flexDirection:
-        'row',
-
-      alignItems:
-        'center',
-
-      backgroundColor:
-        COLORS.white,
-
-      shadowColor:
-        '#000',
-
-      shadowOpacity:
-        0.08,
-
-      shadowRadius:
-        7,
-
-      elevation: 3,
-
-    },
-
-
-    mapHintText: {
-
-      flex: 1,
-
-      marginLeft: 7,
-
-      fontSize: 12,
-
-      fontWeight:
-        '600',
-
-      color:
-        COLORS.gray,
-
-    },
-
-
-    mapFallback: {
-
-      flex: 1,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    mapFallbackTitle: {
-
-      marginTop: 8,
-
-      fontSize: 16,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.black,
-
-    },
-
-
-    mapFallbackText: {
-
-      marginTop: 3,
-
-      fontSize: 12,
-
-      color:
-        COLORS.gray,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | QUICK PLACES
-    |--------------------------------------------------------------------------
-    */
-
-    sectionHeader: {
-
-      marginTop: 18,
-
-      marginBottom: 10,
-
-      flexDirection:
-        'row',
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'space-between',
-
-    },
-
-
-    sectionTitle: {
-
-      fontSize: 18,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.black,
-
-    },
-
-
-    manageText: {
-
-      fontSize: 13,
-
-      fontWeight:
-        '700',
-
-      color:
-        COLORS.green,
-
-    },
-
-
-    quickPlaces: {
-
-      flexDirection:
-        'row',
-
-      gap: 9,
-
-    },
-
-
-    quickPlace: {
-
-      flex: 1,
-
-      minHeight: 85,
-
-      borderRadius: 18,
-
-      borderWidth: 1,
-
-      borderColor:
-        COLORS.border,
-
-      backgroundColor:
-        COLORS.white,
-
-      padding: 11,
-
-    },
-
-
-    quickIcon: {
-
-      width: 38,
-
-      height: 38,
-
-      borderRadius: 19,
-
-      backgroundColor:
-        COLORS.greenSoft,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    quickContent: {
-
-      marginTop: 7,
-
-    },
-
-
-    quickTitle: {
-
-      fontSize: 13,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.black,
-
-    },
-
-
-    quickSubtitle: {
-
-      marginTop: 2,
-
-      fontSize: 11,
-
-      color:
-        COLORS.gray,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | VALUE BANNER
-    |--------------------------------------------------------------------------
-    */
-
-    valueBanner: {
-
-      minHeight: 90,
-
-      marginTop: 17,
-
-      borderRadius: 21,
-
-      paddingHorizontal: 14,
-
-      flexDirection:
-        'row',
-
-      alignItems:
-        'center',
-
-      backgroundColor:
-        '#F0FAF4',
-
-    },
-
-
-    valueIcon: {
-
-      width: 50,
-
-      height: 50,
-
-      borderRadius: 25,
-
-      backgroundColor:
-        '#E0F4E8',
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    valueContent: {
-
-      flex: 1,
-
-      marginLeft: 12,
-
-      marginRight: 8,
-
-    },
-
-
-    valueTitle: {
-
-      fontSize: 15,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.black,
-
-    },
-
-
-    valueSubtitle: {
-
-      marginTop: 4,
-
-      fontSize: 12,
-
-      lineHeight: 17,
-
-      color:
-        COLORS.gray,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | MAIN BOOK BUTTON
-    |--------------------------------------------------------------------------
-    */
-
-    bookButton: {
-
-      minHeight: 58,
-
-      marginTop: 13,
-
-      borderRadius: 18,
-
-      paddingHorizontal: 20,
-
-      backgroundColor:
-        COLORS.green,
-
-      flexDirection:
-        'row',
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-
-    bookButtonInactive: {
-
-      backgroundColor:
-        COLORS.green,
-
-    },
-
-
-    bookButtonText: {
-
-      flex: 1,
-
-      textAlign:
-        'center',
-
-      fontSize: 16,
-
-      fontWeight:
-        '800',
-
-      color:
-        COLORS.white,
-
-      marginLeft: 22,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | TRUST
-    |--------------------------------------------------------------------------
-    */
-
-    trustRow: {
-
-      flexDirection:
-        'row',
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-      paddingVertical: 8,
-
-    },
-
-
-    trustText: {
-
-      marginLeft: 6,
-
-      fontSize: 11.5,
-
-      color:
-        COLORS.gray,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | BOTTOM NAV
-    |--------------------------------------------------------------------------
-    */
-
-    bottomNav: {
-
-      position:
-        'absolute',
-
-      left: 10,
-
-      right: 10,
-
-      bottom: 7,
-
-      height: 70,
-
-      borderRadius: 22,
-
-      backgroundColor:
-        COLORS.white,
-
-      flexDirection:
-        'row',
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'space-around',
-
-      shadowColor:
-        '#000',
-
-      shadowOpacity:
-        0.1,
-
-      shadowRadius:
-        15,
-
-      shadowOffset: {
-
-        width: 0,
-
-        height: -3,
-
-      },
-
-      elevation: 9,
-
-    },
-
-
-    bottomItem: {
-
-      width: 62,
-
-      height: 60,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-      position:
-        'relative',
-
-    },
-
-
-    bottomLabel: {
-
-      marginTop: 3,
-
-      fontSize: 10.5,
-
-      color:
-        '#777D84',
-
-    },
-
-
-    bottomLabelActive: {
-
-      color:
-        COLORS.green,
-
-      fontWeight:
-        '700',
-
-    },
-
-
-    bottomIndicator: {
-
-      position:
-        'absolute',
-
-      bottom: 0,
-
-      width: 23,
-
-      height: 3,
-
-      borderRadius: 2,
-
-      backgroundColor:
-        COLORS.green,
-
-    },
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | CENTER BOOK BUTTON
-    |--------------------------------------------------------------------------
-    */
-
-    bookContainer: {
-
-      width: 78,
-
-      alignItems:
-        'center',
-
-      marginTop: -27,
-
-    },
-
-
-    bookCircle: {
-
-      width: 61,
-
-      height: 61,
-
-      borderRadius: 31,
-
-      backgroundColor:
-        COLORS.green,
-
-      borderWidth: 4,
-
-      borderColor:
-        COLORS.white,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-      shadowColor:
-        COLORS.green,
-
-      shadowOpacity:
-        0.25,
-
-      shadowRadius:
-        8,
-
-      shadowOffset: {
-
-        width: 0,
-
-        height: 4,
-
-      },
-
-      elevation: 7,
-
-    },
-
-
-    bookLabel: {
-
-      marginTop: 2,
-
-      fontSize: 10.5,
-
-      fontWeight:
-        '700',
-
-      color:
-        COLORS.black,
-
-    },
-
-  });
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: COLORS.offWhite },
+  screen: { flex: 1, backgroundColor: COLORS.offWhite },
+  header: {
+    paddingHorizontal: 22,
+    paddingTop: 14,
+    paddingBottom: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.black,
+    borderBottomLeftRadius: 26,
+    borderBottomRightRadius: 26,
+  },
+  brand: { fontSize: 24, fontWeight: '900', letterSpacing: 2.5, color: COLORS.white },
+  tagline: { marginTop: 4, fontSize: 12, color: '#D0D0D0' },
+  headerBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: { flex: 1, paddingHorizontal: 18, paddingTop: 22, paddingBottom: 18 },
+  question: { fontSize: 28, lineHeight: 34, fontWeight: '900', color: COLORS.black, letterSpacing: -0.6 },
+  helper: { marginTop: 5, fontSize: 13, color: COLORS.gray },
+  locationCard: {
+    marginTop: 18,
+    borderRadius: 24,
+    padding: 17,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.softGray,
+    flexDirection: 'row',
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  routeRail: { width: 25, alignItems: 'center', paddingTop: 9 },
+  pickupDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: COLORS.black, borderWidth: 3, borderColor: COLORS.goldSoft },
+  routeLine: { width: 2, flex: 1, minHeight: 50, backgroundColor: COLORS.softGray, marginVertical: 3 },
+  dropDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: COLORS.gold },
+  locationBody: { flex: 1, marginLeft: 8 },
+  locationBlock: { paddingVertical: 2 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  label: { fontSize: 10, fontWeight: '900', letterSpacing: 1.2, color: COLORS.gray },
+  changeText: { fontSize: 12, fontWeight: '800', color: COLORS.black },
+  valueRow: { marginTop: 7, minHeight: 55, flexDirection: 'row', alignItems: 'center' },
+  valueTextWrap: { flex: 1, marginRight: 10 },
+  valueTitle: { fontSize: 17, lineHeight: 21, fontWeight: '800', color: COLORS.black },
+  valueAddress: { marginTop: 3, fontSize: 12, lineHeight: 16, color: COLORS.gray },
+  placeholderTitle: { color: COLORS.blackSoft },
+  placeholderAddress: { color: COLORS.muted },
+  separator: { height: 1, backgroundColor: COLORS.softGray, marginVertical: 14 },
+  destinationButton: {
+    marginTop: 7,
+    minHeight: 60,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.softGray,
+    backgroundColor: COLORS.offWhite,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  destinationIcon: { width: 38, height: 38, borderRadius: 13, backgroundColor: COLORS.black, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  errorCard: { marginTop: 10, borderRadius: 15, backgroundColor: COLORS.goldSoft, paddingHorizontal: 13, paddingVertical: 11, flexDirection: 'row', alignItems: 'center' },
+  errorText: { flex: 1, marginLeft: 8, fontSize: 12, fontWeight: '700', color: COLORS.black },
+  mapCard: { flex: 1, minHeight: 180, marginTop: 14, borderRadius: 22, overflow: 'hidden', backgroundColor: COLORS.mapBackground, position: 'relative' },
+  mapPickupMarker: { width: 28, height: 28, borderRadius: 14, backgroundColor: COLORS.white, borderWidth: 3, borderColor: COLORS.black, alignItems: 'center', justifyContent: 'center' },
+  mapPickupCenter: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.gold },
+  mapLabel: { position: 'absolute', top: 12, left: 12, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: COLORS.white, flexDirection: 'row', alignItems: 'center', shadowColor: '#000000', shadowOpacity: 0.09, shadowRadius: 7, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  mapLabelText: { marginLeft: 6, fontSize: 11, fontWeight: '800', color: COLORS.black },
+  primaryButton: { minHeight: 60, marginTop: 14, borderRadius: 19, paddingHorizontal: 20, backgroundColor: COLORS.black, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.16, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
+  primaryButtonText: { flex: 1, textAlign: 'center', marginLeft: 22, fontSize: 16, fontWeight: '900', color: COLORS.white, letterSpacing: 0.2 },
+  footerText: { marginTop: 9, textAlign: 'center', fontSize: 11, color: COLORS.gray },
+});
