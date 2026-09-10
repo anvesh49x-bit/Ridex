@@ -44,3 +44,54 @@ export async function requireAuth(
     });
   }
 }
+
+/*
+|--------------------------------------------------------------------------
+| REQUIRE ADMIN
+|--------------------------------------------------------------------------
+|
+| Admin access is controlled by a Firebase custom claim:
+|
+| {
+|   admin: true
+| }
+|
+| This check MUST happen on the backend.
+| Never trust the Admin Panel frontend to decide who is an admin.
+|
+|--------------------------------------------------------------------------
+*/
+
+export async function requireAdmin(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    /*
+     * requireAuth should normally run before requireAdmin.
+     */
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: "Authentication required",
+      });
+    }
+
+    if (req.user.admin !== true) {
+      return res.status(403).json({
+        success: false,
+        error: "Admin access required",
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error("Admin authorization error:", error);
+
+    return res.status(403).json({
+      success: false,
+      error: "Admin access required",
+    });
+  }
+}

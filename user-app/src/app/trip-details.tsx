@@ -34,61 +34,38 @@ import MapView, {
    RIDEX — TRIP DETAILS
    =========================================================================
 
-   PURPOSE
-   -------------------------------------------------------------------------
-   This page is responsible ONLY for:
+   RESPONSIBILITIES
 
-   1. Showing pickup and destination
-   2. Calculating the REAL Google road route
-   3. Getting REAL distance
-   4. Getting REAL traffic-aware travel time
-   5. Calculating a dynamic suggested fare
-   6. Selecting Bike or Auto
+   1. Show pickup + destination
+   2. Calculate REAL Google road route
+   3. Calculate REAL distance
+   4. Calculate REAL traffic-aware duration
+   5. Calculate initial RIDEX fare range
+   6. Select Bike / Auto
+   7. Select fare mode:
+        - RIDEX Suggested
+        - My Price
 
-   THIS PAGE DOES NOT HANDLE:
+   IMPORTANT
 
-   - User offer amount
-   - Payment
-   - Driver matching
-   - Driver acceptance
-   - Counter offers
-   - Demand/supply pricing
-   - Final booking
+   This screen does NOT decide whether a rider wins a ride.
 
-   Those will be implemented in later screens.
-
-
-   MAINTENANCE RULE
-   -------------------------------------------------------------------------
-   Every important section below has a named comment.
-
-   Future changes should be added BETWEEN the relevant START / END comments.
-
-   Example:
-
-   // RIDEX PRICING ENGINE START
-   ...
-   // RIDEX PRICING ENGINE END
-
-   If we need to change pricing later, we can modify only that section.
-
+   Rider matching, rider acceptance, counter-offers and ride locking
+   are backend responsibilities.
 
    ========================================================================= */
 
 
 /* =========================================================================
-   RIDEX GOOGLE CONFIG START
+   GOOGLE CONFIG
    ========================================================================= */
 
 const GOOGLE_API_KEY =
   process.env.EXPO_PUBLIC_GOOGLE_ROUTES_API_KEY;
-/* =========================================================================
-   RIDEX GOOGLE CONFIG END
-   ========================================================================= */
 
 
 /* =========================================================================
-   RIDEX COLORS START
+   COLORS
    ========================================================================= */
 
 const COLORS = {
@@ -121,74 +98,9 @@ const COLORS = {
 
 };
 
-/* =========================================================================
-   RIDEX COLORS END
-   ========================================================================= */
-
 
 /* =========================================================================
-
-   RIDEX MAP HELPERS START
-
-   ========================================================================= */
-function fitNativeMapToRoute(
-  mapRef: React.RefObject<MapView>,
-  pickup: Coordinates | null,
-  drop: Coordinates | null,
-  polyline: Coordinates[],
-) {
-  const points: {
-    latitude: number;
-    longitude: number;
-  }[] = [];
-
-  if (pickup) {
-    points.push({
-      latitude: pickup.lat,
-      longitude: pickup.lng,
-    });
-  }
-
-  if (drop) {
-    points.push({
-      latitude: drop.lat,
-      longitude: drop.lng,
-    });
-  }
-
-  if (polyline.length > 1) {
-    points.push(
-      ...polyline.map((point) => ({
-        latitude: point.lat,
-        longitude: point.lng,
-      })),
-    );
-  }
-
-  if (points.length < 2) {
-    return;
-  }
-
-  mapRef.current?.fitToCoordinates(points, {
-    edgePadding: {
-      top: 55,
-      right: 45,
-      bottom: 75,
-      left: 45,
-    },
-    animated: true,
-  });
-}
-
-/* =========================================================================
-
-   RIDEX MAP HELPERS END
-
-   ========================================================================= */
-
-
-/* =========================================================================
-   RIDEX TYPES START
+   TYPES
    ========================================================================= */
 
 type Coordinates = {
@@ -205,6 +117,13 @@ type VehicleType =
   | 'bike'
 
   | 'auto';
+
+
+type PricingMode =
+
+  | 'suggested'
+
+  | 'manual';
 
 
 type Vehicle = {
@@ -232,8 +151,6 @@ type RouteInfo = {
 
   polyline: Coordinates[];
 
-  viewport?: any;
-
 };
 
 
@@ -247,24 +164,9 @@ type FareQuote = {
 
 };
 
-/* =========================================================================
-   RIDEX TYPES END
-   ========================================================================= */
-
 
 /* =========================================================================
-   RIDEX VEHICLES START
-   =========================================================================
-
-   MVP ONLY:
-
-   - Bike
-   - Auto
-
-   Do NOT add fare values here.
-
-   Fare is calculated by the pricing engine below.
-
+   VEHICLES
    ========================================================================= */
 
 const VEHICLES: Vehicle[] = [
@@ -295,51 +197,10 @@ const VEHICLES: Vehicle[] = [
 
 ];
 
-/* =========================================================================
-   RIDEX VEHICLES END
-   ========================================================================= */
-
 
 /* =========================================================================
-   RIDEX PRICING ENGINE START
-   =========================================================================
-
-   IMPORTANT
-
-   This is the ONLY place where Trip Details calculates fares.
-
-   The calculation uses:
-
-       REAL GOOGLE DISTANCE
-       +
-       REAL GOOGLE DURATION
-       +
-       VEHICLE TYPE
-
-   Formula:
-
-       Base Fare
-       + Distance × Per KM
-       + Time × Per Minute
-
-   Then we generate:
-
-       Minimum
-       Recommended
-       Maximum
-
-   These are initial MVP values.
-
-   They are NOT final city launch rates.
-
-   Later we can move this configuration to Supabase/backend.
-
+   PRICING ENGINE
    ========================================================================= */
-
-
-/* -------------------------------------------------------------------------
-   INITIAL RIDEX MVP RATES
-   ------------------------------------------------------------------------- */
 
 const PRICING = {
 
@@ -370,19 +231,6 @@ const PRICING = {
 };
 
 
-/* -------------------------------------------------------------------------
-   ROUND FARE
-   -------------------------------------------------------------------------
-
-   Examples:
-
-       ₹72 → ₹70
-       ₹73 → ₹75
-       ₹81 → ₹80
-
-   Keeps the rider-facing price clean.
-   ------------------------------------------------------------------------- */
-
 const roundFare = (
   amount: number,
 ): number => {
@@ -402,10 +250,6 @@ const roundFare = (
 };
 
 
-/* -------------------------------------------------------------------------
-   CALCULATE SUGGESTED FARE
-   ------------------------------------------------------------------------- */
-
 const calculateSuggestedFare = (
 
   vehicle: VehicleType,
@@ -415,10 +259,6 @@ const calculateSuggestedFare = (
   durationSeconds: number,
 
 ): FareQuote | null => {
-
-  /* -----------------------------------------------------------------------
-     Validate Google route values
-     ----------------------------------------------------------------------- */
 
   if (
 
@@ -441,10 +281,6 @@ const calculateSuggestedFare = (
   }
 
 
-  /* -----------------------------------------------------------------------
-     Convert units
-     ----------------------------------------------------------------------- */
-
   const distanceKm =
     distanceMeters / 1000;
 
@@ -453,17 +289,9 @@ const calculateSuggestedFare = (
     durationSeconds / 60;
 
 
-  /* -----------------------------------------------------------------------
-     Vehicle pricing configuration
-     ----------------------------------------------------------------------- */
-
   const rate =
     PRICING[vehicle];
 
-
-  /* -----------------------------------------------------------------------
-     Calculate fair fare
-     ----------------------------------------------------------------------- */
 
   const calculatedFare =
 
@@ -480,31 +308,12 @@ const calculateSuggestedFare = (
     );
 
 
-  /* -----------------------------------------------------------------------
-     Minimum fare protection
-     ----------------------------------------------------------------------- */
-
   const fairFare =
     Math.max(
       calculatedFare,
       rate.minimumFare,
     );
 
-
-  /* -----------------------------------------------------------------------
-     Rider-friendly suggested range
-     -----------------------------------------------------------------------
-
-     Minimum:
-       approximately 8% below fair fare
-
-     Recommended:
-       calculated fair fare
-
-     Maximum:
-       approximately 10% above fair fare
-
-     ----------------------------------------------------------------------- */
 
   const minimum =
     Math.max(
@@ -554,27 +363,119 @@ const calculateSuggestedFare = (
 
 };
 
+
 /* =========================================================================
-   RIDEX PRICING ENGINE END
+   MAP HELPER
    ========================================================================= */
 
+function fitNativeMapToRoute(
+
+  mapRef: React.RefObject<MapView>,
+
+  pickup: Coordinates | null,
+
+  drop: Coordinates | null,
+
+  polyline: Coordinates[],
+
+) {
+
+  const points: {
+
+    latitude: number;
+
+    longitude: number;
+
+  }[] = [];
+
+
+  if (pickup) {
+
+    points.push({
+
+      latitude:
+        pickup.lat,
+
+      longitude:
+        pickup.lng,
+
+    });
+
+  }
+
+
+  if (drop) {
+
+    points.push({
+
+      latitude:
+        drop.lat,
+
+      longitude:
+        drop.lng,
+
+    });
+
+  }
+
+
+  if (polyline.length > 1) {
+
+    points.push(
+
+      ...polyline.map(
+        (point) => ({
+
+          latitude:
+            point.lat,
+
+          longitude:
+            point.lng,
+
+        }),
+      ),
+
+    );
+
+  }
+
+
+  if (points.length < 2) {
+
+    return;
+
+  }
+
+
+  mapRef.current?.fitToCoordinates(
+
+    points,
+
+    {
+
+      edgePadding: {
+
+        top: 55,
+
+        right: 45,
+
+        bottom: 75,
+
+        left: 45,
+
+      },
+
+      animated: true,
+
+    },
+
+  );
+
+}
+
 
 /* =========================================================================
-   RIDEX REAL GOOGLE ROUTE START
-   =========================================================================
-
-   Google Routes API provides:
-
-       distanceMeters
-       durationMillis
-       path
-
-   routingPreference:
-
-       TRAFFIC_AWARE
-
-   Therefore the ETA is based on Google's traffic-aware routing calculation.
-
+   GOOGLE ROUTES
    ========================================================================= */
 
 async function calculateGoogleRoute(
@@ -595,9 +496,15 @@ async function calculateGoogleRoute(
 
   const samePoint =
 
-    Math.abs(pickup.lat - drop.lat) < 0.000001 &&
+    Math.abs(
+      pickup.lat -
+      drop.lat,
+    ) < 0.000001 &&
 
-    Math.abs(pickup.lng - drop.lng) < 0.000001;
+    Math.abs(
+      pickup.lng -
+      drop.lng,
+    ) < 0.000001;
 
 
   if (samePoint) {
@@ -617,12 +524,6 @@ async function calculateGoogleRoute(
 
   }
 
-
-  /*
-   * Native React Native implementation:
-   * Call Google's Routes REST API directly instead of the
-   * browser-only Google Maps JavaScript API.
-   */
 
   const requestBody = {
 
@@ -681,21 +582,33 @@ async function calculateGoogleRoute(
 
 
   console.log(
+
     'RIDEX ROUTES API REQUEST:',
+
     {
+
       pickup,
+
       drop,
+
       pickupName,
+
       pickupAddress,
+
       dropName,
+
       dropAddress,
+
     },
+
   );
 
 
   const response =
     await fetch(
+
       'https://routes.googleapis.com/directions/v2:computeRoutes',
+
       {
 
         method:
@@ -711,10 +624,15 @@ async function calculateGoogleRoute(
 
           'X-Goog-FieldMask':
             [
+
               'routes.distanceMeters',
+
               'routes.duration',
+
               'routes.staticDuration',
+
               'routes.polyline.encodedPolyline',
+
             ].join(','),
 
         },
@@ -725,6 +643,7 @@ async function calculateGoogleRoute(
           ),
 
       },
+
     );
 
 
@@ -735,24 +654,33 @@ async function calculateGoogleRoute(
   if (!response.ok) {
 
     console.error(
+
       'RIDEX ROUTES API ERROR:',
+
       {
+
         status:
           response.status,
 
         body:
           responseText,
+
       },
+
     );
 
+
     throw new Error(
+
       `Google Routes API failed (${response.status}).`,
+
     );
 
   }
 
 
   let result: any;
+
 
   try {
 
@@ -775,11 +703,6 @@ async function calculateGoogleRoute(
 
 
   if (!route) {
-
-    console.error(
-      'RIDEX: Google returned no route.',
-      result,
-    );
 
     throw new Error(
       'Google returned no route.',
@@ -822,10 +745,6 @@ async function calculateGoogleRoute(
         )} km`;
 
 
-  /* =========================================================================
-     REAL TRAFFIC-AWARE DURATION
-     ========================================================================= */
-
   const parseGoogleDuration =
     (
       value: string,
@@ -836,13 +755,26 @@ async function calculateGoogleRoute(
           /^([0-9]+(?:\.[0-9]+)?)s$/,
         );
 
-      if (!match) return 0;
+
+      if (!match) {
+
+        return 0;
+
+      }
+
 
       const seconds =
-        Number(match[1]);
+        Number(
+          match[1],
+        );
 
-      return Number.isFinite(seconds)
+
+      return Number.isFinite(
+        seconds,
+      )
+
         ? seconds
+
         : 0;
 
     };
@@ -850,21 +782,30 @@ async function calculateGoogleRoute(
 
   const durationSecondsRaw =
     parseGoogleDuration(
+
       typeof route.duration === 'string'
+
         ? route.duration
+
         : '',
+
     );
 
 
   const staticDurationSeconds =
     parseGoogleDuration(
+
       typeof route.staticDuration === 'string'
+
         ? route.staticDuration
+
         : '',
+
     );
 
 
   const durationSeconds =
+
     Math.max(
 
       1,
@@ -872,7 +813,9 @@ async function calculateGoogleRoute(
       Math.round(
 
         durationSecondsRaw > 0
+
           ? durationSecondsRaw
+
           : staticDurationSeconds,
 
       ),
@@ -881,8 +824,13 @@ async function calculateGoogleRoute(
 
 
   if (
-    !Number.isFinite(durationSeconds) ||
+
+    !Number.isFinite(
+      durationSeconds,
+    ) ||
+
     durationSeconds <= 0
+
   ) {
 
     throw new Error(
@@ -893,6 +841,7 @@ async function calculateGoogleRoute(
 
 
   const durationMinutes =
+
     Math.max(
 
       1,
@@ -908,131 +857,150 @@ async function calculateGoogleRoute(
     `${durationMinutes} min`;
 
 
-  /* =========================================================================
-     REAL ROAD-FOLLOWING PATH
-     ========================================================================= */
-
   const encodedPolyline =
     route?.polyline?.encodedPolyline || '';
 
 
-  const decodeGooglePolyline =
-    (
-      encoded: string,
-    ): Coordinates[] => {
+  const decodeGooglePolyline = (
 
-      const points: Coordinates[] = [];
+    encoded: string,
 
-      let index = 0;
+  ): Coordinates[] => {
 
-      let latitude = 0;
+    const points: Coordinates[] = [];
 
-      let longitude = 0;
+    let index = 0;
+
+    let latitude = 0;
+
+    let longitude = 0;
 
 
-      while (
+    while (
+      index < encoded.length
+    ) {
+
+      let shift = 0;
+
+      let result = 0;
+
+      let byte = 0;
+
+
+      do {
+
+        byte =
+          encoded.charCodeAt(
+            index++,
+          ) - 63;
+
+
+        result |=
+          (byte & 0x1f) <<
+          shift;
+
+
+        shift += 5;
+
+      } while (
+
+        byte >= 0x20 &&
+
         index < encoded.length
-      ) {
 
-        let shift = 0;
-
-        let result = 0;
-
-        let byte = 0;
+      );
 
 
-        do {
+      const deltaLatitude =
 
-          byte =
-            encoded.charCodeAt(
-              index++,
-            ) - 63;
+        (result & 1)
 
-          result |=
-            (byte & 0x1f) <<
-            shift;
+          ? ~(result >> 1)
 
-          shift += 5;
-
-        } while (
-          byte >= 0x20 &&
-          index < encoded.length
-        );
+          : result >> 1;
 
 
-        const deltaLatitude =
-          (result & 1)
-            ? ~(result >> 1)
-            : result >> 1;
+      latitude +=
+        deltaLatitude;
 
 
-        latitude +=
-          deltaLatitude;
+      shift = 0;
+
+      result = 0;
 
 
-        shift = 0;
+      do {
 
-        result = 0;
-
-
-        do {
-
-          byte =
-            encoded.charCodeAt(
-              index++,
-            ) - 63;
-
-          result |=
-            (byte & 0x1f) <<
-            shift;
-
-          shift += 5;
-
-        } while (
-          byte >= 0x20 &&
-          index < encoded.length
-        );
+        byte =
+          encoded.charCodeAt(
+            index++,
+          ) - 63;
 
 
-        const deltaLongitude =
-          (result & 1)
-            ? ~(result >> 1)
-            : result >> 1;
+        result |=
+          (byte & 0x1f) <<
+          shift;
 
 
-        longitude +=
-          deltaLongitude;
+        shift += 5;
+
+      } while (
+
+        byte >= 0x20 &&
+
+        index < encoded.length
+
+      );
 
 
-        points.push({
+      const deltaLongitude =
 
-          lat:
-            latitude / 1e5,
+        (result & 1)
 
-          lng:
-            longitude / 1e5,
+          ? ~(result >> 1)
 
-        });
-
-      }
+          : result >> 1;
 
 
-      return points;
+      longitude +=
+        deltaLongitude;
 
-    };
+
+      points.push({
+
+        lat:
+          latitude / 1e5,
+
+        lng:
+          longitude / 1e5,
+
+      });
+
+    }
+
+
+    return points;
+
+  };
 
 
   const polyline =
+
     encodedPolyline
+
       ? decodeGooglePolyline(
           encodedPolyline,
         )
+
       : [];
 
 
   console.log(
+
     'RIDEX ROUTE SUCCESS:',
+
     {
+
       distance:
         distanceText,
 
@@ -1045,7 +1013,9 @@ async function calculateGoogleRoute(
 
       routePoints:
         polyline.length,
+
     },
+
   );
 
 
@@ -1065,13 +1035,9 @@ async function calculateGoogleRoute(
 
 }
 
-/* =========================================================================
-   RIDEX REAL GOOGLE ROUTE END
-   ========================================================================= */
-
 
 /* =========================================================================
-   TRIP DETAILS SCREEN START
+   SCREEN
    ========================================================================= */
 
 export default function TripDetailsScreen() {
@@ -1080,9 +1046,9 @@ export default function TripDetailsScreen() {
     useRouter();
 
 
-  /* =========================================================================
-     ROUTE PARAMETERS START
-     ========================================================================= */
+  /* -----------------------------------------------------------------------
+     ROUTE PARAMETERS
+     ----------------------------------------------------------------------- */
 
   const params =
     useLocalSearchParams<{
@@ -1105,14 +1071,10 @@ export default function TripDetailsScreen() {
 
     }>();
 
-  /* =========================================================================
-     ROUTE PARAMETERS END
-     ========================================================================= */
 
-
-  /* =========================================================================
-     PICKUP COORDINATES START
-     ========================================================================= */
+  /* -----------------------------------------------------------------------
+     PICKUP COORDINATES
+     ----------------------------------------------------------------------- */
 
   const pickupCoordinates =
     useMemo<Coordinates | null>(() => {
@@ -1133,16 +1095,7 @@ export default function TripDetailsScreen() {
 
         !Number.isFinite(lat) ||
 
-        !Number.isFinite(lng)
-
-      ) {
-
-        return null;
-
-      }
-
-
-      if (
+        !Number.isFinite(lng) ||
 
         lat < -90 ||
 
@@ -1150,20 +1103,9 @@ export default function TripDetailsScreen() {
 
         lng < -180 ||
 
-        lng > 180
+        lng > 180 ||
 
-      ) {
-
-        return null;
-
-      }
-
-
-      if (
-
-        lat === 0 &&
-
-        lng === 0
+        (lat === 0 && lng === 0)
 
       ) {
 
@@ -1188,14 +1130,10 @@ export default function TripDetailsScreen() {
 
     ]);
 
-  /* =========================================================================
-     PICKUP COORDINATES END
-     ========================================================================= */
 
-
-  /* =========================================================================
-     DROP COORDINATES START
-     ========================================================================= */
+  /* -----------------------------------------------------------------------
+     DROP COORDINATES
+     ----------------------------------------------------------------------- */
 
   const dropCoordinates =
     useMemo<Coordinates | null>(() => {
@@ -1216,16 +1154,7 @@ export default function TripDetailsScreen() {
 
         !Number.isFinite(lat) ||
 
-        !Number.isFinite(lng)
-
-      ) {
-
-        return null;
-
-      }
-
-
-      if (
+        !Number.isFinite(lng) ||
 
         lat < -90 ||
 
@@ -1233,20 +1162,9 @@ export default function TripDetailsScreen() {
 
         lng < -180 ||
 
-        lng > 180
+        lng > 180 ||
 
-      ) {
-
-        return null;
-
-      }
-
-
-      if (
-
-        lat === 0 &&
-
-        lng === 0
+        (lat === 0 && lng === 0)
 
       ) {
 
@@ -1271,14 +1189,34 @@ export default function TripDetailsScreen() {
 
     ]);
 
-  /* =========================================================================
-     DROP COORDINATES END
-     ========================================================================= */
+
+  /* -----------------------------------------------------------------------
+     DISPLAY VALUES
+     ----------------------------------------------------------------------- */
+
+  const pickupName =
+    params.pickupName ||
+    'Current location';
 
 
-  /* =========================================================================
-     SELECTED VEHICLE START
-     ========================================================================= */
+  const pickupAddress =
+    params.pickupAddress ||
+    '';
+
+
+  const dropName =
+    params.dropName ||
+    'Destination';
+
+
+  const dropAddress =
+    params.dropAddress ||
+    '';
+
+
+  /* -----------------------------------------------------------------------
+     VEHICLE
+     ----------------------------------------------------------------------- */
 
   const [
 
@@ -1290,23 +1228,47 @@ export default function TripDetailsScreen() {
     'bike',
   );
 
-  /* =========================================================================
-     NATIVE MAP REF START
-     ========================================================================= */
 
-  const mapRef =
-  React.useRef<MapView>(
-    null!,
+  /* -----------------------------------------------------------------------
+     FARE MODE
+     -----------------------------------------------------------------------
+
+     Default:
+
+       RIDEX Suggested
+
+     This keeps the booking experience simple for normal users.
+
+     Users who want negotiation control can choose:
+
+       My Price
+
+     ----------------------------------------------------------------------- */
+
+  const [
+
+    pricingMode,
+
+    setPricingMode,
+
+  ] = useState<PricingMode>(
+    'suggested',
   );
 
-  /* =========================================================================
-     NATIVE MAP REF END
-     ========================================================================= */
+
+  /* -----------------------------------------------------------------------
+     MAP REF
+     ----------------------------------------------------------------------- */
+
+  const mapRef =
+    React.useRef<MapView>(
+      null!,
+    );
 
 
-  /* =========================================================================
-     ROUTE STATE START
-     ========================================================================= */
+  /* -----------------------------------------------------------------------
+     ROUTE STATE
+     ----------------------------------------------------------------------- */
 
   const [
 
@@ -1336,17 +1298,14 @@ export default function TripDetailsScreen() {
 
   ] = useState(false);
 
-  /* =========================================================================
-     ROUTE STATE END
-     ========================================================================= */
 
-
-  /* =========================================================================
-     CALCULATE ROUTE START
-     ========================================================================= */
+  /* -----------------------------------------------------------------------
+     LOAD ROUTE
+     ----------------------------------------------------------------------- */
 
   const loadRoute =
     useCallback(
+
       async () => {
 
         if (
@@ -1378,6 +1337,7 @@ export default function TripDetailsScreen() {
           true,
         );
 
+
         setRouteError(
           false,
         );
@@ -1392,13 +1352,13 @@ export default function TripDetailsScreen() {
 
               dropCoordinates,
 
-              params.pickupName,
+              pickupName,
 
-              params.pickupAddress,
+              pickupAddress,
 
-              params.dropName,
+              dropName,
 
-              params.dropAddress,
+              dropAddress,
 
             );
 
@@ -1407,19 +1367,20 @@ export default function TripDetailsScreen() {
             newRoute,
           );
 
-
         } catch (error) {
 
           console.error(
+
             'RIDEX ROUTE ERROR:',
+
             error,
+
           );
 
 
           setRouteInfo(
             null,
           );
-
 
           setRouteError(
             true,
@@ -1441,25 +1402,18 @@ export default function TripDetailsScreen() {
 
         dropCoordinates,
 
-        params.pickupName,
+        pickupName,
 
-        params.pickupAddress,
+        pickupAddress,
 
-        params.dropName,
+        dropName,
 
-        params.dropAddress,
+        dropAddress,
 
       ],
+
     );
 
-  /* =========================================================================
-     CALCULATE ROUTE END
-     ========================================================================= */
-
-
-  /* =========================================================================
-     AUTOMATIC ROUTE CALCULATION START
-     ========================================================================= */
 
   useEffect(() => {
 
@@ -1471,19 +1425,19 @@ export default function TripDetailsScreen() {
 
   ]);
 
-  /* =========================================================================
-     AUTOMATIC ROUTE CALCULATION END
-     ========================================================================= */
 
-  /* =========================================================================
-     NATIVE MAP ROUTE FIT START
-     ========================================================================= */
+  /* -----------------------------------------------------------------------
+     FIT MAP
+     ----------------------------------------------------------------------- */
 
   useEffect(() => {
 
     if (
+
       routeInfo &&
+
       routeInfo.polyline.length > 1
+
     ) {
 
       fitNativeMapToRoute(
@@ -1510,50 +1464,10 @@ export default function TripDetailsScreen() {
 
   ]);
 
-  /* =========================================================================
-     NATIVE MAP ROUTE FIT END
-     ========================================================================= */
 
-
-  /* =========================================================================
-     DISPLAY VALUES START
-     ========================================================================= */
-
-  const pickupName =
-    params.pickupName ||
-    'Current location';
-
-
-  const pickupAddress =
-    params.pickupAddress ||
-    '';
-
-
-  const dropName =
-    params.dropName ||
-    'Destination';
-
-
-  const dropAddress =
-    params.dropAddress ||
-    '';
-
-  /* =========================================================================
-     DISPLAY VALUES END
-     ========================================================================= */
-
-
-  /* =========================================================================
-     REAL-TIME SUGGESTED FARE START
-     =========================================================================
-
-     This is recalculated automatically when:
-
-     - Route distance changes
-     - Route duration changes
-     - Vehicle changes
-
-     ========================================================================= */
+  /* -----------------------------------------------------------------------
+     FARE
+     ----------------------------------------------------------------------- */
 
   const suggestedFare =
     useMemo(
@@ -1564,11 +1478,9 @@ export default function TripDetailsScreen() {
 
           selectedVehicle,
 
-          routeInfo?.distanceMeters ||
-            0,
+          routeInfo?.distanceMeters || 0,
 
-          routeInfo?.durationSeconds ||
-            0,
+          routeInfo?.durationSeconds || 0,
 
         ),
 
@@ -1584,35 +1496,10 @@ export default function TripDetailsScreen() {
 
     );
 
-  /* =========================================================================
-     REAL-TIME SUGGESTED FARE END
-     ========================================================================= */
 
-
-  /* =========================================================================
-     MAP CENTER START
-     ========================================================================= */
-
-  const mapCenter =
-    pickupCoordinates ||
-    dropCoordinates || {
-
-      lat:
-        16.5062,
-
-      lng:
-        80.6480,
-
-    };
-
-  /* =========================================================================
-     MAP CENTER END
-     ========================================================================= */
-
-
-  /* =========================================================================
-     BACK BUTTON START
-     ========================================================================= */
+  /* -----------------------------------------------------------------------
+     BACK
+     ----------------------------------------------------------------------- */
 
   const handleBack =
     useCallback(() => {
@@ -1638,123 +1525,96 @@ export default function TripDetailsScreen() {
 
     ]);
 
-  /* =========================================================================
-     BACK BUTTON END
-     ========================================================================= */
 
-/* =========================================================================
-   CONTINUE BUTTON START
-   =========================================================================
+  /* -----------------------------------------------------------------------
+     CONTINUE
+     -----------------------------------------------------------------------
 
-   Sends the real Google route + fare data to Your Offer.
+     TEMPORARY BRIDGE
 
-   ========================================================================= */
+     We still send the user to make-offer.tsx for this implementation
+     layer.
 
-const handleContinue =
-  useCallback(() => {
+     The important change is that Trip Details now owns the fare mode
+     and passes it forward.
 
-    if (!suggestedFare) {
+     Next implementation layer will replace this with:
 
-      Alert.alert(
-        'Fare unavailable',
-        'Please wait for the route and fare to finish calculating.',
-      );
+       POST /api/rides
 
-      return;
+     ----------------------------------------------------------------------- */
 
-    }
-
-
+  const handleContinue = useCallback(() => {
     if (!routeInfo) {
-
-      Alert.alert(
-        'Route unavailable',
-        'Please wait for the route to finish calculating.',
-      );
-
+      Alert.alert('Route not ready', 'Please wait for the route to load.');
       return;
-
+    }
+    if (!suggestedFare) {
+      Alert.alert('Fare not ready', 'Please wait for the fare to load.');
+      return;
+    }
+    if (!pickupCoordinates || !dropCoordinates) {
+      Alert.alert('Location not ready', 'Please wait for locations to load.');
+      return;
     }
 
+    const commonParams = {
+      pickupName,
+      pickupAddress,
+      pickupLat: String(pickupCoordinates.lat),
+      pickupLng: String(pickupCoordinates.lng),
+
+      dropName,
+      dropAddress,
+      dropLat: String(dropCoordinates.lat),
+      dropLng: String(dropCoordinates.lng),
+
+      distanceText: routeInfo.distanceText,
+      durationText: routeInfo.durationText,
+
+      minFare: String(suggestedFare.minimum),
+      maxFare: String(suggestedFare.maximum),
+      suggestedFare: String(suggestedFare.recommended),
+
+      vehicle: selectedVehicle,
+      pricingMode,
+    };
+
+    if (pricingMode === 'suggested') {
+      router.push({
+        pathname: '/rider-responses',
+        params: {
+          ...commonParams,
+          userOffer: String(suggestedFare.recommended),
+        },
+      });
+      return;
+    }
 
     router.push({
-
       pathname: '/make-offer',
-
       params: {
-
-        pickupName:
-          pickupName,
-
-        pickupAddress:
-          pickupAddress,
-
-        dropName:
-          dropName,
-
-        dropAddress:
-          dropAddress,
-
-        distanceText:
-          routeInfo.distanceText,
-
-        durationText:
-          routeInfo.durationText,
-
-        minFare:
-          String(
-            suggestedFare.minimum,
-          ),
-
-        maxFare:
-          String(
-            suggestedFare.maximum,
-          ),
-
-        suggestedFare:
-          String(
-            suggestedFare.recommended,
-          ),
-
-        vehicle:
-          selectedVehicle,
-
+        ...commonParams,
+        userOffer: String(suggestedFare.recommended),
       },
-
     });
-
   }, [
-
     router,
-
-    suggestedFare,
-
     routeInfo,
-
+    suggestedFare,
+    pickupCoordinates,
+    dropCoordinates,
     pickupName,
-
     pickupAddress,
-
     dropName,
-
     dropAddress,
-
     selectedVehicle,
-
+    pricingMode,
   ]);
 
-/* =========================================================================
-   CONTINUE BUTTON END
-   ========================================================================= */
-  /* =========================================================================
-  
-  /* =========================================================================
-     CONTINUE BUTTON END
-     ========================================================================= */
-
 
   /* =========================================================================
-     TRIP DETAILS UI START
+     UI
      ========================================================================= */
 
   return (
@@ -1781,13 +1641,10 @@ const handleContinue =
 
         keyboardShouldPersistTaps="handled"
 
-        nestedScrollEnabled
-
       >
 
-
         {/* ================================================================
-            HEADER START
+            HEADER
         ================================================================ */}
 
         <View
@@ -1843,7 +1700,7 @@ const handleContinue =
                 styles.headerSubtitle
               }
             >
-              Review your route and fare
+              Review your ride
             </Text>
 
           </View>
@@ -1857,13 +1714,9 @@ const handleContinue =
 
         </View>
 
-        {/* ================================================================
-            HEADER END
-        ================================================================ */}
-
 
         {/* ================================================================
-            LOCATIONS START
+            LOCATIONS
         ================================================================ */}
 
         <View
@@ -1871,9 +1724,6 @@ const handleContinue =
             styles.locationCard
           }
         >
-
-
-          {/* PICKUP */}
 
           <View
             style={
@@ -1947,16 +1797,12 @@ const handleContinue =
           </View>
 
 
-          {/* VERTICAL CONNECTOR */}
-
           <View
             style={
               styles.locationConnector
             }
           />
 
-
-          {/* DESTINATION */}
 
           <View
             style={
@@ -2029,13 +1875,9 @@ const handleContinue =
 
         </View>
 
-        {/* ================================================================
-            LOCATIONS END
-        ================================================================ */}
-
 
         {/* ================================================================
-            MAP START
+            MAP
         ================================================================ */}
 
         <View
@@ -2061,33 +1903,51 @@ const handleContinue =
             initialRegion={{
 
               latitude:
-                mapCenter.lat,
+                (pickupCoordinates ||
+                  dropCoordinates)?.lat ||
+                16.5062,
 
               longitude:
-                mapCenter.lng,
+                (pickupCoordinates ||
+                  dropCoordinates)?.lng ||
+                80.6480,
 
               latitudeDelta:
                 pickupCoordinates &&
                 dropCoordinates
+
                   ? Math.max(
+
                       0.04,
+
                       Math.abs(
+
                         pickupCoordinates.lat -
                         dropCoordinates.lat,
+
                       ) * 1.8,
+
                     )
+
                   : 0.04,
 
               longitudeDelta:
                 pickupCoordinates &&
                 dropCoordinates
+
                   ? Math.max(
+
                       0.04,
+
                       Math.abs(
+
                         pickupCoordinates.lng -
                         dropCoordinates.lng,
+
                       ) * 1.8,
+
                     )
+
                   : 0.04,
 
             }}
@@ -2132,26 +1992,30 @@ const handleContinue =
               true
             }
 
-showsPointsOfInterests={
-  false
-}
+    
+
           >
 
             {pickupCoordinates && (
 
-            <Marker
+              <Marker
 
-  coordinate={{
-    latitude:
-      pickupCoordinates.lat,
+                coordinate={{
 
-    longitude:
-      pickupCoordinates.lng,
-  }}
+                  latitude:
+                    pickupCoordinates.lat,
+
+                  longitude:
+                    pickupCoordinates.lng,
+
+                }}
 
                 anchor={{
+
                   x: 0.5,
+
                   y: 0.5,
+
                 }}
 
                 tracksViewChanges={
@@ -2180,19 +2044,25 @@ showsPointsOfInterests={
 
 
             {dropCoordinates && (
-<Marker
 
-  coordinate={{
-    latitude:
-      dropCoordinates.lat,
+              <Marker
 
-    longitude:
-      dropCoordinates.lng,
-  }}
-             
+                coordinate={{
+
+                  latitude:
+                    dropCoordinates.lat,
+
+                  longitude:
+                    dropCoordinates.lng,
+
+                }}
+
                 anchor={{
+
                   x: 0.5,
+
                   y: 1,
+
                 }}
 
                 tracksViewChanges={
@@ -2229,19 +2099,24 @@ showsPointsOfInterests={
             {routeInfo &&
               routeInfo.polyline.length > 1 && (
 
-             <Polyline
+              <Polyline
 
-  coordinates={
-    routeInfo.polyline.map(
-      (point) => ({
-        latitude:
-          point.lat,
+                coordinates={
 
-        longitude:
-          point.lng,
-      }),
-    )
-  }
+                  routeInfo.polyline.map(
+                    (point) => ({
+
+                      latitude:
+                        point.lat,
+
+                      longitude:
+                        point.lng,
+
+                    }),
+                  )
+
+                }
+
                 strokeColor={
                   COLORS.green
                 }
@@ -2285,7 +2160,7 @@ showsPointsOfInterests={
                   styles.routeStatusText
                 }
               >
-                Calculating real route...
+                Calculating route...
               </Text>
 
             </View>
@@ -2329,8 +2204,7 @@ showsPointsOfInterests={
 
 
           {routeInfo &&
-            !routeLoading &&
-            routeInfo.distanceMeters > 0 && (
+            !routeLoading && (
 
             <View
               style={
@@ -2410,13 +2284,9 @@ showsPointsOfInterests={
 
         </View>
 
-        {/* ================================================================
-            MAP END
-        ================================================================ */}
-
 
         {/* ================================================================
-            REAL TRIP SUMMARY START
+            TRIP SUMMARY
         ================================================================ */}
 
         <View
@@ -2424,9 +2294,6 @@ showsPointsOfInterests={
             styles.tripSummary
           }
         >
-
-
-          {/* DISTANCE */}
 
           <View
             style={
@@ -2444,7 +2311,7 @@ showsPointsOfInterests={
 
                 name="navigate-outline"
 
-                size={23}
+                size={22}
 
                 color={
                   COLORS.green
@@ -2488,8 +2355,6 @@ showsPointsOfInterests={
           />
 
 
-          {/* TIME */}
-
           <View
             style={
               styles.summaryItem
@@ -2506,7 +2371,7 @@ showsPointsOfInterests={
 
                 name="time-outline"
 
-                size={23}
+                size={22}
 
                 color={
                   COLORS.green
@@ -2550,8 +2415,6 @@ showsPointsOfInterests={
           />
 
 
-          {/* FARE */}
-
           <View
             style={
               styles.summaryItem
@@ -2582,7 +2445,7 @@ showsPointsOfInterests={
                   styles.summaryLabel
                 }
               >
-                Suggested
+                Fare range
               </Text>
 
 
@@ -2596,9 +2459,7 @@ showsPointsOfInterests={
 
                   ? `₹${suggestedFare.minimum}–₹${suggestedFare.maximum}`
 
-                  : '—'
-
-                }
+                  : '—'}
 
               </Text>
 
@@ -2608,13 +2469,9 @@ showsPointsOfInterests={
 
         </View>
 
-        {/* ================================================================
-            REAL TRIP SUMMARY END
-        ================================================================ */}
-
 
         {/* ================================================================
-            VEHICLE SECTION START
+            VEHICLE
         ================================================================ */}
 
         <Text
@@ -2633,9 +2490,7 @@ showsPointsOfInterests={
         >
 
           {VEHICLES.map(
-            (
-              vehicle,
-            ) => {
+            (vehicle) => {
 
               const active =
                 selectedVehicle ===
@@ -2647,11 +2502,9 @@ showsPointsOfInterests={
 
                   vehicle.id,
 
-                  routeInfo?.distanceMeters ||
-                    0,
+                  routeInfo?.distanceMeters || 0,
 
-                  routeInfo?.durationSeconds ||
-                    0,
+                  routeInfo?.durationSeconds || 0,
 
                 );
 
@@ -2673,18 +2526,15 @@ showsPointsOfInterests={
 
                   ]}
 
-                  onPress={() =>
+                  onPress={() => {
 
                     setSelectedVehicle(
                       vehicle.id,
-                    )
+                    );
 
-                  }
+                  }}
 
                 >
-
-
-                  {/* VEHICLE ICON */}
 
                   <View
                     style={[
@@ -2720,8 +2570,6 @@ showsPointsOfInterests={
                   </View>
 
 
-                  {/* VEHICLE NAME */}
-
                   <Text
                     style={
                       styles.vehicleName
@@ -2731,8 +2579,6 @@ showsPointsOfInterests={
                   </Text>
 
 
-                  {/* VEHICLE CAPACITY */}
-
                   <Text
                     style={
                       styles.vehicleSubtitle
@@ -2741,8 +2587,6 @@ showsPointsOfInterests={
                     {vehicle.subtitle}
                   </Text>
 
-
-                  {/* VEHICLE REAL-TIME FARE */}
 
                   <Text
                     style={[
@@ -2759,14 +2603,10 @@ showsPointsOfInterests={
 
                       ? `₹${vehicleFare.minimum} – ₹${vehicleFare.maximum}`
 
-                      : 'Calculating...'
-
-                    }
+                      : 'Calculating...'}
 
                   </Text>
 
-
-                  {/* RECOMMENDED */}
 
                   {active &&
                     vehicleFare && (
@@ -2801,35 +2641,86 @@ showsPointsOfInterests={
 
         </View>
 
-        {/* ================================================================
-            VEHICLE SECTION END
-        ================================================================ */}
-
 
         {/* ================================================================
-            FARE EXPLANATION START
+            FARE MODE
         ================================================================ */}
 
         <View
           style={
-            styles.fareInfoCard
+            styles.fareModeHeader
           }
         >
 
+          <View>
+
+            <Text
+              style={
+                styles.sectionTitle
+              }
+            >
+              How would you like to set your fare?
+            </Text>
+
+
+            <Text
+              style={
+                styles.fareModeSubtitle
+              }
+            >
+              You can change this anytime before requesting.
+            </Text>
+
+          </View>
+
+        </View>
+
+
+        {/* RIDEX SUGGESTED */}
+
+        <Pressable
+
+          style={[
+
+            styles.fareModeCard,
+
+            pricingMode === 'suggested' &&
+              styles.fareModeCardActive,
+
+          ]}
+
+          onPress={() =>
+
+            setPricingMode(
+              'suggested',
+            )
+
+          }
+
+        >
+
           <View
-            style={
-              styles.fareInfoIcon
-            }
+            style={[
+              styles.fareModeIcon,
+              pricingMode === 'suggested' &&
+                styles.fareModeIconActive,
+            ]}
           >
 
             <Ionicons
 
-              name="pricetag-outline"
+              name="sparkles-outline"
 
-              size={24}
+              size={25}
 
               color={
-                COLORS.green
+
+                pricingMode === 'suggested'
+
+                  ? COLORS.green
+
+                  : COLORS.black
+
               }
 
             />
@@ -2839,40 +2730,289 @@ showsPointsOfInterests={
 
           <View
             style={
-              styles.fareInfoContent
+              styles.fareModeContent
             }
           >
 
-            <Text
+            <View
               style={
-                styles.fareInfoTitle
+                styles.fareModeTitleRow
               }
             >
-              Suggested fare updates with your trip
-            </Text>
+
+              <Text
+                style={
+                  styles.fareModeTitle
+                }
+              >
+                RIDEX Suggested
+              </Text>
+
+
+              {pricingMode ===
+                'suggested' && (
+
+                <View
+                  style={
+                    styles.selectedCheck
+                  }
+                >
+
+                  <Ionicons
+
+                    name="checkmark"
+
+                    size={15}
+
+                    color={
+                      COLORS.white
+                    }
+
+                  />
+
+                </View>
+
+              )}
+
+            </View>
 
 
             <Text
               style={
-                styles.fareInfoText
+                styles.fareModeDescription
               }
             >
-              Your suggested fare is calculated from
-              the real road distance and estimated travel
-              time for this trip.
+              Let RIDEX suggest a fair price for this trip.
             </Text>
+
+
+            {suggestedFare && (
+
+              <Text
+                style={
+                  styles.fareModePrice
+                }
+              >
+                ₹{suggestedFare.recommended}
+                {' '}
+                recommended
+              </Text>
+
+            )}
 
           </View>
 
-        </View>
+        </Pressable>
+
+
+        {/* MY PRICE */}
+
+        <Pressable
+
+          style={[
+
+            styles.fareModeCard,
+
+            pricingMode === 'manual' &&
+              styles.fareModeCardActive,
+
+          ]}
+
+          onPress={() =>
+
+            setPricingMode(
+              'manual',
+            )
+
+          }
+
+        >
+
+          <View
+            style={[
+              styles.fareModeIcon,
+              pricingMode === 'manual' &&
+                styles.fareModeIconActive,
+            ]}
+          >
+
+            <Ionicons
+
+              name="options-outline"
+
+              size={25}
+
+              color={
+
+                pricingMode === 'manual'
+
+                  ? COLORS.green
+
+                  : COLORS.black
+
+              }
+
+            />
+
+          </View>
+
+
+          <View
+            style={
+              styles.fareModeContent
+            }
+          >
+
+            <View
+              style={
+                styles.fareModeTitleRow
+              }
+            >
+
+              <Text
+                style={
+                  styles.fareModeTitle
+                }
+              >
+                My Price
+              </Text>
+
+
+              {pricingMode ===
+                'manual' && (
+
+                <View
+                  style={
+                    styles.selectedCheck
+                  }
+                >
+
+                  <Ionicons
+
+                    name="checkmark"
+
+                    size={15}
+
+                    color={
+                      COLORS.white
+                    }
+
+                  />
+
+                </View>
+
+              )}
+
+            </View>
+
+
+            <Text
+              style={
+                styles.fareModeDescription
+              }
+            >
+              Choose your price within the RIDEX allowed range.
+            </Text>
+
+
+            {suggestedFare && (
+
+              <Text
+                style={
+                  styles.fareModePrice
+                }
+              >
+                ₹{suggestedFare.minimum}
+                {' – ₹'}
+                {suggestedFare.maximum}
+              </Text>
+
+            )}
+
+          </View>
+
+        </Pressable>
+
 
         {/* ================================================================
-            FARE EXPLANATION END
+            FARE EXPLANATION
         ================================================================ */}
 
+        {suggestedFare && (
+
+          <View
+            style={
+              styles.fareInfoCard
+            }
+          >
+
+            <View
+              style={
+                styles.fareInfoIcon
+              }
+            >
+
+              <Ionicons
+
+                name="shield-checkmark-outline"
+
+                size={24}
+
+                color={
+                  COLORS.green
+                }
+
+              />
+
+            </View>
+
+
+            <View
+              style={
+                styles.fareInfoContent
+              }
+            >
+
+              <Text
+                style={
+                  styles.fareInfoTitle
+                }
+              >
+
+                {pricingMode === 'suggested'
+
+                  ? 'RIDEX recommends ₹' +
+                    suggestedFare.recommended
+
+                  : 'Choose between ₹' +
+                    suggestedFare.minimum +
+                    ' and ₹' +
+                    suggestedFare.maximum}
+
+              </Text>
+
+
+              <Text
+                style={
+                  styles.fareInfoText
+                }
+              >
+
+                Riders can accept your fare or send a counter-offer.
+                Once a rider is matched, competing offers will no
+                longer be available.
+
+              </Text>
+
+            </View>
+
+          </View>
+
+        )}
+
 
         {/* ================================================================
-            SELECTED FARE HIGHLIGHT START
+            SELECTED FARE
         ================================================================ */}
 
         {suggestedFare && (
@@ -2892,8 +3032,11 @@ showsPointsOfInterests={
               >
                 {selectedVehicle === 'bike'
                   ? 'Bike'
-                  : 'Auto'}{' '}
-                • Suggested Fare
+                  : 'Auto'}
+                {' • '}
+                {pricingMode === 'suggested'
+                  ? 'RIDEX Suggested'
+                  : 'My Price'}
               </Text>
 
 
@@ -2902,14 +3045,12 @@ showsPointsOfInterests={
                   styles.selectedFareAmount
                 }
               >
+
                 ₹
                 {
-                  suggestedFare.minimum
+                  suggestedFare.recommended
                 }
-                {' – ₹'}
-                {
-                  suggestedFare.maximum
-                }
+
               </Text>
 
             </View>
@@ -2939,11 +3080,13 @@ showsPointsOfInterests={
                   styles.goodOfferText
                 }
               >
-                ₹
-                {
-                  suggestedFare.recommended
-                }{' '}
-                recommended
+
+                {pricingMode === 'suggested'
+
+                  ? 'Recommended'
+
+                  : `Allowed ₹${suggestedFare.minimum}–₹${suggestedFare.maximum}`}
+
               </Text>
 
             </View>
@@ -2952,13 +3095,9 @@ showsPointsOfInterests={
 
         )}
 
-        {/* ================================================================
-            SELECTED FARE HIGHLIGHT END
-        ================================================================ */}
-
 
         {/* ================================================================
-            MAIN CTA START
+            MAIN CTA
         ================================================================ */}
 
         <Pressable
@@ -2967,13 +3106,22 @@ showsPointsOfInterests={
 
             styles.mainButton,
 
-            !suggestedFare &&
+            (!suggestedFare ||
+              !routeInfo ||
+              routeLoading) &&
+
               styles.mainButtonDisabled,
 
           ]}
 
           disabled={
-            !suggestedFare
+
+            !suggestedFare ||
+
+            !routeInfo ||
+
+            routeLoading
+
           }
 
           onPress={
@@ -2982,12 +3130,10 @@ showsPointsOfInterests={
 
         >
 
-          <Text
-            style={
-              styles.mainButtonText
-            }
-          >
-            Continue to Set Your Price
+          <Text style={styles.mainButtonText}>
+            {pricingMode === 'suggested'
+              ? 'Request Ride'
+              : 'Continue to Set Your Price'}
           </Text>
 
 
@@ -2995,7 +3141,7 @@ showsPointsOfInterests={
 
             name="arrow-forward"
 
-            size={26}
+            size={25}
 
             color={
               COLORS.white
@@ -3005,13 +3151,9 @@ showsPointsOfInterests={
 
         </Pressable>
 
-        {/* ================================================================
-            MAIN CTA END
-        ================================================================ */}
-
 
         {/* ================================================================
-            TRUST ROW START
+            TRUST
         ================================================================ */}
 
         <View
@@ -3043,14 +3185,6 @@ showsPointsOfInterests={
 
         </View>
 
-        {/* ================================================================
-            TRUST ROW END
-        ================================================================ */}
-
-
-        {/* ================================================================
-            BOTTOM SPACE
-        ================================================================ */}
 
         <View
           style={
@@ -3066,21 +3200,13 @@ showsPointsOfInterests={
 
 }
 
-/* =========================================================================
-   TRIP DETAILS SCREEN END
-   ========================================================================= */
-
 
 /* =========================================================================
-   RIDEX STYLES START
+   STYLES
    ========================================================================= */
 
 const styles =
   StyleSheet.create({
-
-    /* =====================================================================
-       SCREEN
-       ===================================================================== */
 
     safeArea: {
 
@@ -3091,6 +3217,7 @@ const styles =
 
     },
 
+
     screen: {
 
       flex: 1,
@@ -3099,6 +3226,7 @@ const styles =
         COLORS.white,
 
     },
+
 
     screenContent: {
 
@@ -3111,9 +3239,7 @@ const styles =
     },
 
 
-    /* =====================================================================
-       HEADER
-       ===================================================================== */
+    /* HEADER */
 
     header: {
 
@@ -3130,6 +3256,7 @@ const styles =
         'space-between',
 
     },
+
 
     backButton: {
 
@@ -3150,15 +3277,16 @@ const styles =
 
     },
 
+
     headerCenter: {
 
-      flex:
-        1,
+      flex: 1,
 
       alignItems:
         'center',
 
     },
+
 
     headerTitle: {
 
@@ -3173,6 +3301,7 @@ const styles =
 
     },
 
+
     headerSubtitle: {
 
       marginTop:
@@ -3186,6 +3315,7 @@ const styles =
 
     },
 
+
     headerSpacer: {
 
       width:
@@ -3194,9 +3324,7 @@ const styles =
     },
 
 
-    /* =====================================================================
-       LOCATION CARD
-       ===================================================================== */
+    /* LOCATION */
 
     locationCard: {
 
@@ -3248,6 +3376,7 @@ const styles =
 
     },
 
+
     locationRow: {
 
       flexDirection:
@@ -3261,6 +3390,7 @@ const styles =
 
     },
 
+
     markerColumn: {
 
       width:
@@ -3273,6 +3403,7 @@ const styles =
         'center',
 
     },
+
 
     pickupMarker: {
 
@@ -3302,6 +3433,7 @@ const styles =
 
     },
 
+
     pickupDot: {
 
       width:
@@ -3317,6 +3449,7 @@ const styles =
         COLORS.green,
 
     },
+
 
     locationConnector: {
 
@@ -3340,6 +3473,7 @@ const styles =
 
     },
 
+
     locationText: {
 
       flex:
@@ -3349,6 +3483,7 @@ const styles =
         9,
 
     },
+
 
     pickupLabel: {
 
@@ -3363,6 +3498,7 @@ const styles =
 
     },
 
+
     dropLabel: {
 
       fontSize:
@@ -3375,6 +3511,7 @@ const styles =
         COLORS.red,
 
     },
+
 
     locationName: {
 
@@ -3392,6 +3529,7 @@ const styles =
 
     },
 
+
     locationAddress: {
 
       marginTop:
@@ -3406,9 +3544,7 @@ const styles =
     },
 
 
-    /* =====================================================================
-       MAP
-       ===================================================================== */
+    /* MAP */
 
     mapContainer: {
 
@@ -3416,67 +3552,39 @@ const styles =
         275,
 
       borderRadius:
-        23,
+        22,
 
       overflow:
         'hidden',
 
-      backgroundColor:
-        COLORS.mapBackground,
-
       marginBottom:
         14,
 
-      position:
-        'relative',
+      backgroundColor:
+        COLORS.mapBackground,
 
     },
 
-    mapFallback: {
-
-      flex:
-        1,
-
-      alignItems:
-        'center',
-
-      justifyContent:
-        'center',
-
-    },
-
-    mapFallbackText: {
-
-      marginTop:
-        8,
-
-      fontSize:
-        13,
-
-      color:
-        COLORS.gray,
-
-    },
 
     mapPickupMarker: {
 
       width:
-        30,
+        25,
 
       height:
-        30,
+        25,
 
       borderRadius:
-        15,
+        13,
 
       borderWidth:
-        4,
+        2,
 
       borderColor:
-        COLORS.green,
+        COLORS.white,
 
       backgroundColor:
-        COLORS.white,
+        COLORS.greenSoft,
 
       alignItems:
         'center',
@@ -3486,13 +3594,14 @@ const styles =
 
     },
 
+
     mapPickupDot: {
 
       width:
-        9,
+        10,
 
       height:
-        9,
+        10,
 
       borderRadius:
         5,
@@ -3502,13 +3611,8 @@ const styles =
 
     },
 
+
     mapDropMarker: {
-
-      width:
-        42,
-
-      height:
-        42,
 
       alignItems:
         'center',
@@ -3517,6 +3621,7 @@ const styles =
         'center',
 
     },
+
 
     routeStatus: {
 
@@ -3529,52 +3634,46 @@ const styles =
       left:
         14,
 
+      right:
+        14,
+
+      borderRadius:
+        14,
+
+      paddingHorizontal:
+        12,
+
+      paddingVertical:
+        10,
+
+      backgroundColor:
+        COLORS.white,
+
       flexDirection:
         'row',
 
       alignItems:
         'center',
 
-      paddingHorizontal:
-        13,
-
-      paddingVertical:
-        9,
-
-      borderRadius:
-        18,
-
-      backgroundColor:
-        COLORS.white,
-
       shadowColor:
         '#000',
 
       shadowOpacity:
-        0.10,
+        0.08,
 
       shadowRadius:
         8,
 
-      shadowOffset: {
-
-        width:
-          0,
-
-        height:
-          2,
-
-      },
-
       elevation:
-        5,
+        3,
 
     },
+
 
     routeStatusText: {
 
       marginLeft:
-        7,
+        8,
 
       fontSize:
         12,
@@ -3583,20 +3682,36 @@ const styles =
         '700',
 
       color:
-        COLORS.black,
+        COLORS.gray,
 
     },
+
 
     routeError: {
 
       position:
         'absolute',
 
-      top:
-        14,
+      bottom:
+        12,
 
       left:
+        12,
+
+      right:
+        12,
+
+      borderRadius:
         14,
+
+      paddingHorizontal:
+        12,
+
+      paddingVertical:
+        9,
+
+      backgroundColor:
+        COLORS.white,
 
       flexDirection:
         'row',
@@ -3604,22 +3719,8 @@ const styles =
       alignItems:
         'center',
 
-      paddingHorizontal:
-        13,
-
-      paddingVertical:
-        9,
-
-      borderRadius:
-        18,
-
-      backgroundColor:
-        COLORS.white,
-
-      elevation:
-        5,
-
     },
+
 
     routeErrorText: {
 
@@ -3637,28 +3738,29 @@ const styles =
 
     },
 
+
     mapSummary: {
 
       position:
         'absolute',
 
       left:
-        14,
+        12,
+
+      right:
+        12,
 
       bottom:
-        14,
+        12,
 
       minHeight:
-        43,
+        42,
 
       borderRadius:
-        22,
+        14,
 
       backgroundColor:
         COLORS.white,
-
-      paddingHorizontal:
-        14,
 
       flexDirection:
         'row',
@@ -3666,29 +3768,23 @@ const styles =
       alignItems:
         'center',
 
+      justifyContent:
+        'center',
+
       shadowColor:
         '#000',
 
       shadowOpacity:
-        0.10,
+        0.08,
 
       shadowRadius:
         8,
 
-      shadowOffset: {
-
-        width:
-          0,
-
-        height:
-          2,
-
-      },
-
       elevation:
-        5,
+        3,
 
     },
+
 
     mapSummaryItem: {
 
@@ -3698,7 +3794,28 @@ const styles =
       alignItems:
         'center',
 
+      justifyContent:
+        'center',
+
+      flex:
+        1,
+
     },
+
+
+    mapSummaryDivider: {
+
+      width:
+        1,
+
+      height:
+        22,
+
+      backgroundColor:
+        COLORS.border,
+
+    },
+
 
     mapSummaryText: {
 
@@ -3706,7 +3823,7 @@ const styles =
         5,
 
       fontSize:
-        13,
+        12,
 
       fontWeight:
         '800',
@@ -3716,26 +3833,8 @@ const styles =
 
     },
 
-    mapSummaryDivider: {
 
-      width:
-        1,
-
-      height:
-        20,
-
-      backgroundColor:
-        COLORS.border,
-
-      marginHorizontal:
-        12,
-
-    },
-
-
-    /* =====================================================================
-       TRIP SUMMARY
-       ===================================================================== */
+    /* TRIP SUMMARY */
 
     tripSummary: {
 
@@ -3793,6 +3892,7 @@ const styles =
 
     },
 
+
     summaryItem: {
 
       flex:
@@ -3807,10 +3907,8 @@ const styles =
       justifyContent:
         'center',
 
-      gap:
-        7,
-
     },
+
 
     summaryIcon: {
 
@@ -3832,7 +3930,11 @@ const styles =
       justifyContent:
         'center',
 
+      marginRight:
+        7,
+
     },
+
 
     summaryDivider: {
 
@@ -3847,6 +3949,7 @@ const styles =
 
     },
 
+
     summaryValue: {
 
       fontSize:
@@ -3860,6 +3963,7 @@ const styles =
 
     },
 
+
     summaryLabel: {
 
       marginTop:
@@ -3872,6 +3976,7 @@ const styles =
         COLORS.gray,
 
     },
+
 
     rupeeCircle: {
 
@@ -3893,7 +3998,11 @@ const styles =
       justifyContent:
         'center',
 
+      marginRight:
+        7,
+
     },
+
 
     rupeeText: {
 
@@ -3907,6 +4016,7 @@ const styles =
         COLORS.green,
 
     },
+
 
     summaryFare: {
 
@@ -3925,14 +4035,12 @@ const styles =
     },
 
 
-    /* =====================================================================
-       SECTION TITLE
-       ===================================================================== */
+    /* SECTION */
 
     sectionTitle: {
 
       marginBottom:
-        12,
+        10,
 
       fontSize:
         18,
@@ -3946,9 +4054,7 @@ const styles =
     },
 
 
-    /* =====================================================================
-       VEHICLE CARDS
-       ===================================================================== */
+    /* VEHICLE */
 
     vehicleRow: {
 
@@ -3959,9 +4065,10 @@ const styles =
         12,
 
       marginBottom:
-        18,
+        20,
 
     },
+
 
     vehicleCard: {
 
@@ -3969,7 +4076,7 @@ const styles =
         1,
 
       minHeight:
-        205,
+        190,
 
       borderRadius:
         22,
@@ -4016,6 +4123,7 @@ const styles =
 
     },
 
+
     vehicleCardActive: {
 
       borderWidth:
@@ -4029,16 +4137,17 @@ const styles =
 
     },
 
+
     vehicleIcon: {
 
       width:
-        78,
+        70,
 
       height:
-        78,
+        70,
 
       borderRadius:
-        39,
+        35,
 
       backgroundColor:
         '#F3F7EF',
@@ -4050,9 +4159,10 @@ const styles =
         'center',
 
       marginBottom:
-        12,
+        10,
 
     },
+
 
     vehicleIconActive: {
 
@@ -4060,6 +4170,7 @@ const styles =
         COLORS.greenSoft,
 
     },
+
 
     vehicleName: {
 
@@ -4074,6 +4185,7 @@ const styles =
 
     },
 
+
     vehicleSubtitle: {
 
       marginTop:
@@ -4087,13 +4199,14 @@ const styles =
 
     },
 
+
     vehicleFare: {
 
       marginTop:
-        12,
+        10,
 
       fontSize:
-        15,
+        14,
 
       fontWeight:
         '800',
@@ -4106,12 +4219,14 @@ const styles =
 
     },
 
+
     vehicleFareActive: {
 
       color:
         COLORS.green,
 
     },
+
 
     recommendedBadge: {
 
@@ -4132,6 +4247,7 @@ const styles =
 
     },
 
+
     recommendedText: {
 
       fontSize:
@@ -4146,9 +4262,207 @@ const styles =
     },
 
 
-    /* =====================================================================
-       FARE INFORMATION
-       ===================================================================== */
+    /* FARE MODE */
+
+    fareModeHeader: {
+
+      marginBottom:
+        8,
+
+    },
+
+
+    fareModeSubtitle: {
+
+      marginTop:
+        -6,
+
+      marginBottom:
+        10,
+
+      fontSize:
+        12,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    fareModeCard: {
+
+      minHeight:
+        96,
+
+      borderRadius:
+        20,
+
+      borderWidth:
+        1,
+
+      borderColor:
+        COLORS.border,
+
+      backgroundColor:
+        COLORS.white,
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      paddingHorizontal:
+        14,
+
+      marginBottom:
+        10,
+
+    },
+
+
+    fareModeCardActive: {
+
+      borderWidth:
+        2,
+
+      borderColor:
+        COLORS.green,
+
+      backgroundColor:
+        '#FBFFFD',
+
+    },
+
+
+    fareModeIcon: {
+
+      width:
+        50,
+
+      height:
+        50,
+
+      borderRadius:
+        25,
+
+      backgroundColor:
+        '#F4F6F5',
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    fareModeIconActive: {
+
+      backgroundColor:
+        COLORS.greenSoft,
+
+    },
+
+
+    fareModeContent: {
+
+      flex:
+        1,
+
+      marginLeft:
+        12,
+
+    },
+
+
+    fareModeTitleRow: {
+
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+    },
+
+
+    fareModeTitle: {
+
+      fontSize:
+        15,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.black,
+
+    },
+
+
+    selectedCheck: {
+
+      width:
+        22,
+
+      height:
+        22,
+
+      borderRadius:
+        11,
+
+      marginLeft:
+        7,
+
+      backgroundColor:
+        COLORS.green,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+    },
+
+
+    fareModeDescription: {
+
+      marginTop:
+        3,
+
+      fontSize:
+        12,
+
+      lineHeight:
+        17,
+
+      color:
+        COLORS.gray,
+
+    },
+
+
+    fareModePrice: {
+
+      marginTop:
+        5,
+
+      fontSize:
+        13,
+
+      fontWeight:
+        '800',
+
+      color:
+        COLORS.green,
+
+    },
+
+
+    /* FARE INFO */
 
     fareInfoCard: {
 
@@ -4170,10 +4484,14 @@ const styles =
       paddingHorizontal:
         14,
 
+      marginTop:
+        6,
+
       marginBottom:
         12,
 
     },
+
 
     fareInfoIcon: {
 
@@ -4197,6 +4515,7 @@ const styles =
 
     },
 
+
     fareInfoContent: {
 
       flex:
@@ -4206,6 +4525,7 @@ const styles =
         12,
 
     },
+
 
     fareInfoTitle: {
 
@@ -4219,6 +4539,7 @@ const styles =
         COLORS.black,
 
     },
+
 
     fareInfoText: {
 
@@ -4237,9 +4558,7 @@ const styles =
     },
 
 
-    /* =====================================================================
-       SELECTED FARE
-       ===================================================================== */
+    /* SELECTED FARE */
 
     selectedFareCard: {
 
@@ -4275,6 +4594,7 @@ const styles =
 
     },
 
+
     selectedFareLabel: {
 
       fontSize:
@@ -4288,13 +4608,14 @@ const styles =
 
     },
 
+
     selectedFareAmount: {
 
       marginTop:
         3,
 
       fontSize:
-        22,
+        24,
 
       fontWeight:
         '900',
@@ -4303,6 +4624,7 @@ const styles =
         COLORS.green,
 
     },
+
 
     goodOfferBadge: {
 
@@ -4325,9 +4647,10 @@ const styles =
         7,
 
       maxWidth:
-        145,
+        170,
 
     },
+
 
     goodOfferText: {
 
@@ -4346,9 +4669,7 @@ const styles =
     },
 
 
-    /* =====================================================================
-       MAIN BUTTON
-       ===================================================================== */
+    /* MAIN CTA */
 
     mainButton: {
 
@@ -4400,6 +4721,7 @@ const styles =
 
     },
 
+
     mainButtonDisabled: {
 
       backgroundColor:
@@ -4412,6 +4734,7 @@ const styles =
         0,
 
     },
+
 
     mainButtonText: {
 
@@ -4436,9 +4759,7 @@ const styles =
     },
 
 
-    /* =====================================================================
-       TRUST
-       ===================================================================== */
+    /* TRUST */
 
     trustRow: {
 
@@ -4456,6 +4777,7 @@ const styles =
 
     },
 
+
     trustText: {
 
       marginLeft:
@@ -4470,10 +4792,6 @@ const styles =
     },
 
 
-    /* =====================================================================
-       BOTTOM SPACE
-       ===================================================================== */
-
     bottomSpace: {
 
       height:
@@ -4482,7 +4800,3 @@ const styles =
     },
 
   });
-
-/* =========================================================================
-   RIDEX STYLES END
-   ========================================================================= */

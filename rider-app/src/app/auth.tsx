@@ -1,268 +1,372 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from "react";
 import {
-  Image,
-  Pressable,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
   SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
-} from 'react-native';
-import { router } from 'expo-router';
+} from "react-native";
+
+import {
+  getAuth,
+  signInWithPhoneNumber,
+  ConfirmationResult,
+} from "@react-native-firebase/auth";
+
+const API_URL = "http://10.134.158.132:3000";
+
+type BackendMeResponse = {
+  success?: boolean;
+  accountStatus?: string;
+  capabilities?: {
+    passenger?: boolean;
+    rider?: boolean;
+  };
+  riderStatus?: string;
+  user?: {
+    id: string;
+    firebase_uid: string;
+    is_active: boolean;
+    role: string;
+    has_rider_capability?: boolean;
+    verification_status?: string | null;
+  };
+};
 
 export default function AuthScreen() {
-  const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [otp, setOtp] = useState("");
+
   const [otpSent, setOtpSent] = useState(false);
-  const [error, setError] = useState('');
-  const [phoneFocused, setPhoneFocused] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const otpRefs = useRef<(TextInput | null)[]>([]);
+  const [confirmation, setConfirmation] =
+    useState<ConfirmationResult | null>(null);
 
-  const sendOtp = () => {
-    if (phone.length !== 10) {
-      setError('Enter a valid 10-digit mobile number.');
+  // Prevent double tapping Send OTP / Verify OTP
+  const sendLock = useRef(false);
+  const verifyLock = useRef(false);
+
+  /*
+   * Clean Firebase session when this screen starts only if there
+   * is no existing authenticated user.
+   *
+   * We intentionally DO NOT sign out an existing Firebase user here.
+   */
+  useEffect(() => {
+    const auth = getAuth();
+
+    if (!auth.currentUser) {
+      console.log("[RIDEX AUTH] No Firebase session");
+    } else {
+      console.log(
+        "[RIDEX AUTH] Existing Firebase session:",
+        auth.currentUser.uid
+      );
+    }
+  }, []);
+
+  const normalizePhoneNumber = (value: string) => {
+    const digits = value.replace(/\D/g, "");
+
+    if (digits.startsWith("91") && digits.length === 12) {
+      return `+${digits}`;
+    }
+
+    if (digits.length === 10) {
+      return `+91${digits}`;
+    }
+
+    return value.startsWith("+") ? value : `+${value}`;
+  };
+
+  const sendOtp = async () => {
+    if (sendLock.current || loading) {
       return;
     }
 
-    setError('');
-    setOtpSent(true);
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
 
-    // Development OTP
-    console.log('DEV OTP: 123456');
-
-    setTimeout(() => {
-      otpRefs.current[0]?.focus();
-    }, 150);
-  };
-
-  const handleOtpChange = (value: string, index: number) => {
-    const digit = value.replace(/\D/g, '').slice(-1);
-
-    const nextOtp = [...otp];
-    nextOtp[index] = digit;
-    setOtp(nextOtp);
-    setError('');
-
-    if (digit && index < 5) {
-      otpRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleOtpKeyPress = (
-    e: any,
-    index: number
-  ) => {
-    if (
-      e.nativeEvent.key === 'Backspace' &&
-      !otp[index] &&
-      index > 0
-    ) {
-      otpRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const verifyOtp = () => {
-    const enteredOtp = otp.join('');
-
-    if (enteredOtp.length !== 6) {
-      setError('Enter the 6-digit OTP.');
+    if (!/^\+91\d{10}$/.test(normalizedPhone)) {
+      Alert.alert(
+        "Invalid phone number",
+        "Enter a valid 10-digit Indian mobile number."
+      );
       return;
     }
 
-    // Development authentication
-    if (enteredOtp !== '123456') {
-      setError('Incorrect OTP. Please try again.');
+    sendLock.current = true;
+    setLoading(true);
+
+    try {
+      const auth = getAuth();
+
+      console.log(
+        "[RIDEX AUTH] Sending Firebase OTP to:",
+        normalizedPhone
+      );
+
+      const confirmationResult = await signInWithPhoneNumber(
+        auth,
+        normalizedPhone
+      );
+
+      /*
+       * Store ONLY the newest confirmation session.
+       * An old OTP must never be reused.
+       */
+      setConfirmation(confirmationResult);
+      setOtp("");
+      setOtpSent(true);
+
+      console.log("[RIDEX AUTH] Firebase OTP sent successfully.");
+    } catch (error: any) {
+      console.error(
+        "[RIDEX AUTH] Firebase OTP send error:",
+        error
+      );
+
+      let message = "Unable to send OTP. Please try again.";
+
+      if (error?.code === "auth/too-many-requests") {
+        message =
+          "Firebase temporarily blocked OTP requests from this device. Please wait and try again later.";
+      }
+
+      Alert.alert("OTP Error", message);
+    } finally {
+      setLoading(false);
+
+      // Small protection against accidental double taps.
+      setTimeout(() => {
+        sendLock.current = false;
+      }, 800);
+    }
+  };
+
+  const verifyOtp = async () => {
+    if (verifyLock.current || loading) {
       return;
     }
 
-    setError('');
+    if (!confirmation) {
+      Alert.alert(
+        "OTP required",
+        "Please request a new OTP first."
+      );
+      return;
+    }
 
-    router.push('/personal-details');
+    if (otp.trim().length !== 6) {
+      Alert.alert(
+        "Invalid OTP",
+        "Enter the 6-digit OTP sent to your phone."
+      );
+      return;
+    }
+
+    verifyLock.current = true;
+    setLoading(true);
+
+    try {
+      console.log("[RIDEX AUTH] Verifying Firebase OTP...");
+
+      /*
+       * Firebase verification happens exactly once for this
+       * confirmation session.
+       */
+      await confirmation.confirm(otp.trim());
+
+      const auth = getAuth();
+      const firebaseUser = auth.currentUser;
+
+      if (!firebaseUser) {
+        throw new Error(
+          "Firebase authentication completed but no current user was found."
+        );
+      }
+
+      console.log(
+        "[RIDEX AUTH] Firebase UID:",
+        firebaseUser.uid
+      );
+
+      console.log(
+        "[RIDEX AUTH] Firebase phone:",
+        firebaseUser.phoneNumber
+      );
+
+      console.log(
+        "[RIDEX AUTH] Firebase authentication successful."
+      );
+
+      /*
+       * IMPORTANT:
+       *
+       * We DO NOT navigate here.
+       *
+       * Firebase auth state changes automatically.
+       * _layout.tsx owns the entire post-login navigation flow.
+       *
+       * This prevents:
+       *
+       * auth.tsx navigation
+       * +
+       * _layout.tsx navigation
+       *
+       * from opening Welcome twice.
+       */
+
+      setConfirmation(null);
+      setOtp("");
+
+    } catch (error: any) {
+      console.error(
+        "[RIDEX AUTH] Firebase/RIDEX authentication error:",
+        error
+      );
+
+      let message = "Authentication failed. Please try again.";
+
+      if (error?.code === "auth/session-expired") {
+        message =
+          "This OTP session expired. Please request a new OTP.";
+        setConfirmation(null);
+        setOtp("");
+        setOtpSent(false);
+      } else if (error?.code === "auth/invalid-verification-code") {
+        message =
+          "The OTP is incorrect. Please enter the latest OTP.";
+      }
+
+      Alert.alert("Verification Error", message);
+    } finally {
+      setLoading(false);
+
+      setTimeout(() => {
+        verifyLock.current = false;
+      }, 800);
+    }
+  };
+
+  const changeNumber = () => {
+    setConfirmation(null);
+    setOtp("");
+    setOtpSent(false);
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.content}>
+          <Text style={styles.logo}>RIDEX</Text>
 
-        {/* LOGO */}
-        <View style={styles.logoArea}>
-          <Image
-            source={require('../../assets/images/ridex-logo.png')}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-        </View>
-
-        {/* HERO TEXT */}
-        <View style={styles.hero}>
-          <Text style={styles.heading}>
-            Your ride,
+          <Text style={styles.title}>
+            {otpSent
+              ? "Verify your phone"
+              : "Welcome to RIDEX Rider"}
           </Text>
 
-          <Text style={styles.headingGreen}>
-            your way
+          <Text style={styles.subtitle}>
+            {otpSent
+              ? `Enter the OTP sent to ${normalizePhoneNumber(
+                  phoneNumber
+                )}`
+              : "Sign in with your phone number to continue."}
           </Text>
 
-          <Text style={styles.description}>
-            Affordable rides, trusted drivers,{'\n'}
-            anytime anywhere.
-          </Text>
-        </View>
+          {!otpSent ? (
+            <>
+              <View style={styles.inputContainer}>
+                <Text style={styles.countryCode}>+91</Text>
 
-        {/* PHONE */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            Mobile number
-          </Text>
+                <TextInput
+                  value={phoneNumber}
+                  onChangeText={(value) =>
+                    setPhoneNumber(
+                      value.replace(/\D/g, "").slice(0, 10)
+                    )
+                  }
+                  placeholder="Enter mobile number"
+                  placeholderTextColor="#888"
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                  style={styles.input}
+                  editable={!loading}
+                />
+              </View>
 
-          <Text style={styles.sectionSubtitle}>
-            We'll send you an OTP to verify your number
-          </Text>
-
-          <View
-            style={[
-              styles.phoneField,
-              phoneFocused && styles.phoneFieldFocused,
-              otpSent && styles.phoneFieldDisabled,
-            ]}
-          >
-            <View style={styles.country}>
-              <Text style={styles.flag}>
-                🇮🇳
-              </Text>
-
-              <Text style={styles.countryCode}>
-                +91
-              </Text>
-
-              <Text style={styles.chevron}>
-                ˅
-              </Text>
-            </View>
-
-            <View style={styles.verticalLine} />
-
-            <TextInput
-              value={phone}
-              onChangeText={(text) => {
-                setPhone(
-                  text.replace(/\D/g, '').slice(0, 10)
-                );
-                setError('');
-              }}
-              onFocus={() => setPhoneFocused(true)}
-              onBlur={() => setPhoneFocused(false)}
-              placeholder="Enter mobile number"
-              placeholderTextColor="#A0A6B0"
-              keyboardType="phone-pad"
-              maxLength={10}
-              editable={!otpSent}
-              style={styles.phoneInput}
-            />
-          </View>
-        </View>
-
-        {/* OTP */}
-        <View style={styles.otpSection}>
-
-          <View style={styles.otpTitleRow}>
-            <View>
-              <Text style={styles.sectionTitle}>
-                Verification code
-              </Text>
-
-              <Text style={styles.sectionSubtitle}>
-                {otpSent
-                  ? 'Enter the 6-digit code we sent you'
-                  : 'OTP will appear here after you continue'}
-              </Text>
-            </View>
-
-            {otpSent && (
-              <Text style={styles.timer}>
-                00:30
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.otpRow}>
-            {otp.map((digit, index) => (
-              <TextInput
-                key={index}
-                ref={(ref) => {
-                  otpRefs.current[index] = ref;
-                }}
-                value={digit}
-                onChangeText={(value) =>
-                  handleOtpChange(value, index)
-                }
-                onKeyPress={(e) =>
-                  handleOtpKeyPress(e, index)
-                }
-                keyboardType="number-pad"
-                maxLength={1}
-                editable={otpSent}
-                textAlign="center"
-                selectTextOnFocus
+              <TouchableOpacity
                 style={[
-                  styles.otpBox,
-                  !otpSent && styles.otpBoxInactive,
-                  digit && styles.otpBoxActive,
+                  styles.button,
+                  loading && styles.buttonDisabled,
                 ]}
+                onPress={sendOtp}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>
+                    Send OTP
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TextInput
+                value={otp}
+                onChangeText={(value) =>
+                  setOtp(value.replace(/\D/g, "").slice(0, 6))
+                }
+                placeholder="Enter 6-digit OTP"
+                placeholderTextColor="#888"
+                keyboardType="number-pad"
+                maxLength={6}
+                style={styles.otpInput}
+                editable={!loading}
+                autoFocus
               />
-            ))}
-          </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.button,
+                  loading && styles.buttonDisabled,
+                ]}
+                onPress={verifyOtp}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>
+                    Verify OTP
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={changeNumber}
+                disabled={loading}
+              >
+                <Text style={styles.secondaryText}>
+                  Use another number
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
-
-        {/* ERROR */}
-        {error ? (
-          <Text style={styles.error}>
-            {error}
-          </Text>
-        ) : null}
-
-        {/* BOTTOM */}
-        <View style={styles.bottom}>
-
-          <Pressable
-            onPress={
-              otpSent
-                ? verifyOtp
-                : sendOtp
-            }
-            style={({ pressed }) => [
-              styles.button,
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <Text style={styles.buttonText}>
-              {otpSent
-                ? 'Verify & Continue'
-                : 'Send OTP'}
-            </Text>
-
-            <Text style={styles.buttonArrow}>
-              →
-            </Text>
-          </Pressable>
-
-          <View style={styles.termsArea}>
-            <Text style={styles.terms}>
-              By continuing, you agree to our{' '}
-              <Text style={styles.termsBold}>
-                Terms of Service
-              </Text>{' '}
-              and{' '}
-              <Text style={styles.termsBold}>
-                Privacy Policy
-              </Text>
-            </Text>
-          </View>
-
-        </View>
-
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -270,243 +374,106 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#ffffff",
   },
 
   container: {
     flex: 1,
-    paddingHorizontal: 34,
-    paddingTop: 8,
-    paddingBottom: 10,
   },
 
-  /* LOGO */
-
-  logoArea: {
-    height: 48,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
+  content: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 28,
   },
 
   logo: {
-    width: 103,
-    height: 38,
+    fontSize: 32,
+    fontWeight: "900",
+    letterSpacing: 4,
+    color: "#111111",
+    marginBottom: 45,
   },
 
-  /* HERO */
-
-  hero: {
-    marginTop: 30,
+  title: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#111111",
+    marginBottom: 12,
   },
 
-  heading: {
-    fontSize: 36,
-    lineHeight: 41,
-    fontWeight: '800',
-    color: '#101820',
-    letterSpacing: -0.8,
-  },
-
-  headingGreen: {
-    fontSize: 36,
-    lineHeight: 41,
-    fontWeight: '800',
-    color: '#009E4F',
-    letterSpacing: -0.8,
-  },
-
-  description: {
-    marginTop: 14,
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#687386',
-  },
-
-  /* PHONE */
-
-  section: {
-    marginTop: 49,
-  },
-
-  sectionTitle: {
-    fontSize: 17,
+  subtitle: {
+    fontSize: 15,
     lineHeight: 22,
-    fontWeight: '700',
-    color: '#101820',
+    color: "#666666",
+    marginBottom: 30,
   },
 
-  sectionSubtitle: {
-    marginTop: 7,
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#737C8C',
-  },
-
-  phoneField: {
-    height: 60,
-    marginTop: 16,
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: '#D9DDE3',
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderColor: "#dddddd",
+    borderRadius: 14,
+    height: 58,
     paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-  },
-
-  phoneFieldFocused: {
-    borderColor: '#009E4F',
-    borderWidth: 1.5,
-  },
-
-  phoneFieldDisabled: {
-    opacity: 0.65,
-  },
-
-  country: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  flag: {
-    fontSize: 20,
-    marginRight: 9,
+    marginBottom: 18,
   },
 
   countryCode: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#171D24',
+    fontWeight: "700",
+    color: "#111111",
+    marginRight: 10,
   },
 
-  chevron: {
-    marginLeft: 9,
-    marginTop: -4,
-    fontSize: 20,
-    color: '#727A86',
-  },
-
-  verticalLine: {
-    width: 1,
-    height: 30,
-    backgroundColor: '#DCE0E5',
-    marginLeft: 15,
-    marginRight: 15,
-  },
-
-  phoneInput: {
+  input: {
     flex: 1,
-    height: '100%',
-    padding: 0,
     fontSize: 17,
-    fontWeight: '500',
-    color: '#101820',
+    color: "#111111",
   },
 
-  /* OTP */
-
-  otpSection: {
-    marginTop: 38,
-  },
-
-  otpTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-
-  timer: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#687386',
-    marginBottom: 2,
-  },
-
-  otpRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-  },
-
-  otpBox: {
-    width: 47,
-    height: 56,
-    borderRadius: 14,
+  otpInput: {
+    height: 62,
     borderWidth: 1,
-    borderColor: '#D9DDE3',
-    backgroundColor: '#FFFFFF',
-    fontSize: 21,
-    fontWeight: '600',
-    color: '#101820',
-  },
-
-  otpBoxInactive: {
-    backgroundColor: '#FAFAFA',
-  },
-
-  otpBoxActive: {
-    borderColor: '#009E4F',
-    borderWidth: 1.5,
-    backgroundColor: '#FFFFFF',
-  },
-
-  /* ERROR */
-
-  error: {
-    marginTop: 10,
-    fontSize: 13,
-    color: '#D92D20',
-  },
-
-  /* BOTTOM */
-
-  bottom: {
-    marginTop: 'auto',
+    borderColor: "#dddddd",
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    fontSize: 25,
+    fontWeight: "700",
+    letterSpacing: 8,
+    textAlign: "center",
+    color: "#111111",
+    marginBottom: 18,
   },
 
   button: {
-    height: 60,
-    borderRadius: 15,
-    backgroundColor: '#101820',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    height: 58,
+    borderRadius: 14,
+    backgroundColor: "#111111",
+    justifyContent: "center",
+    alignItems: "center",
   },
 
-  buttonPressed: {
-    opacity: 0.82,
+  buttonDisabled: {
+    opacity: 0.6,
   },
 
   buttonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '700',
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "800",
   },
 
-  buttonArrow: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    marginLeft: 12,
-    marginTop: -2,
+  secondaryButton: {
+    alignItems: "center",
+    marginTop: 22,
+    paddingVertical: 10,
   },
 
-  termsArea: {
-    borderTopWidth: 1,
-    borderTopColor: '#ECEDEF',
-    marginTop: 28,
-    paddingTop: 20,
-    paddingHorizontal: 5,
-  },
-
-  terms: {
-    textAlign: 'center',
-    fontSize: 12.5,
-    lineHeight: 18,
-    color: '#7A8290',
-  },
-
-  termsBold: {
-    color: '#151B22',
-    fontWeight: '600',
+  secondaryText: {
+    color: "#111111",
+    fontSize: 15,
+    fontWeight: "700",
   },
 });

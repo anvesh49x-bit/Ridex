@@ -5,6 +5,8 @@ import cors from "cors";
 import authRouter from "./routes/auth.js";
 import ridesRouter from "./routes/rides.js";
 import { db } from "./config/database.js";
+import riderApplicationRoutes from "./routes/rider-application.js";
+import adminRoutes from "./routes/admin.js";
 
 const app = express();
 
@@ -23,6 +25,8 @@ app.use(express.json());
 
 app.use("/api/auth", authRouter);
 app.use("/api/rides", ridesRouter);
+app.use("/api/rider", riderApplicationRoutes);
+app.use("/api/admin", adminRoutes);
 
 // --------------------------------------------------
 // Basic health check

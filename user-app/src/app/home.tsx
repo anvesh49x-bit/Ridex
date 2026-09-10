@@ -295,7 +295,7 @@ export default function HomeScreen() {
 
           <View style={styles.mapCard}>
             <MapView
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               provider={PROVIDER_GOOGLE}
               initialRegion={{
                 latitude: mapCenter.lat,

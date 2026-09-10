@@ -1,3 +1,4 @@
+/// <reference types="google.maps" />
 import React, {
   useCallback,
   useEffect,
@@ -23,6 +24,18 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+
+
+declare global {
+  interface Window {
+    google: typeof google;
+  }
+}
+
+type GoogleRoutePathPoint = {
+  lat: number | (() => number);
+  lng: number | (() => number);
+};
 
 const GOOGLE_API_KEY =
   process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || '';
@@ -356,7 +369,7 @@ export default function ActiveRideScreen() {
 
         const path = (
           route.path || []
-        ).map((point) => ({
+        ).map((point: GoogleRoutePathPoint) => ({
           lat:
             typeof point.lat === 'function'
               ? point.lat()

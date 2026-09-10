@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Pressable,
@@ -11,23 +12,14 @@ import {
   View,
 } from 'react-native';
 import { router } from 'expo-router';
+import { getAuth } from '@react-native-firebase/auth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-// ---------------------------------------------------------------------------
-// DEPENDENCIES — run before using this screen:
-//   npx expo install expo-linear-gradient expo-haptics
-//   (@expo/vector-icons ships with Expo by default)
-// ---------------------------------------------------------------------------
+const API_URL = 'http://10.134.158.132:3000';
 
-// ---------------------------------------------------------------------------
-// DESIGN TOKENS
-// Centralising these makes the "premium" feel easy to tune from one place
-// instead of hunting through styles.
-// ---------------------------------------------------------------------------
-
-const COLORS_TOKENS = {
+const COLORS = {
   bg: '#FAFAFB',
   card: '#FFFFFF',
   ink: '#0D1117',
@@ -41,14 +33,34 @@ const COLORS_TOKENS = {
   dangerTint: '#FDEDEC',
 };
 
-const GRADIENT_BRAND = [COLORS_TOKENS.brand, COLORS_TOKENS.brandDark] as const;
-const GRADIENT_INK = ['#171E29', '#0A0E14'] as const;
+const GRADIENT_BRAND = [
+  COLORS.brand,
+  COLORS.brandDark,
+] as const;
 
-// ---------------------------------------------------------------------------
-// SUGGESTION DATA
-// ---------------------------------------------------------------------------
+const GRADIENT_INK = [
+  '#171E29',
+  '#0A0E14',
+] as const;
 
 type VehicleType = 'Bike' | 'Auto' | '';
+
+type BackendVehicle = {
+  id: string;
+  vehicle_type: string;
+  make?: string | null;
+  model?: string | null;
+  color?: string | null;
+  registration_number?: string | null;
+  registration_year?: number | null;
+  is_active?: boolean;
+};
+
+type ApplicationResponse = {
+  success?: boolean;
+  message?: string;
+  vehicle?: BackendVehicle | null;
+};
 
 const BIKE_MODELS = [
   'Honda Activa',
@@ -91,7 +103,7 @@ const AUTO_MODELS = [
   'Atul Elite',
 ];
 
-const COLOR_OPTIONS: { name: string; hex: string }[] = [
+const COLOR_OPTIONS = [
   { name: 'Black', hex: '#111318' },
   { name: 'White', hex: '#FFFFFF' },
   { name: 'Red', hex: '#D62828' },
@@ -106,10 +118,6 @@ const COLOR_OPTIONS: { name: string; hex: string }[] = [
   { name: 'Pearl White', hex: '#F5F5F0' },
 ];
 
-// ---------------------------------------------------------------------------
-// FLOATING-LABEL INPUT WITH SUGGESTIONS
-// ---------------------------------------------------------------------------
-
 interface FloatingInputProps {
   label: string;
   value: string;
@@ -119,7 +127,8 @@ interface FloatingInputProps {
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   zIndex?: number;
   suggestions?: string[];
-  renderSwatch?: (item: string) => string | undefined; // returns a hex code
+  renderSwatch?: (item: string) => string | undefined;
+  editable?: boolean;
 }
 
 function FloatingInput({
@@ -132,39 +141,37 @@ function FloatingInput({
   zIndex = 1,
   suggestions,
   renderSwatch,
+  editable = true,
 }: FloatingInputProps) {
   const [focused, setFocused] = useState(false);
-  const labelAnim = useRef(new Animated.Value(value ? 1 : 0)).current;
-  const dropdownAnim = useRef(new Animated.Value(0)).current;
+
+  const labelAnim = useRef(
+    new Animated.Value(value ? 1 : 0),
+  ).current;
 
   const filtered =
-    suggestions && value.trim().length > 0
+    suggestions && value.trim()
       ? suggestions
           .filter((item) =>
-            item.toLowerCase().includes(value.trim().toLowerCase())
+            item
+              .toLowerCase()
+              .includes(value.trim().toLowerCase()),
           )
           .slice(0, 5)
       : [];
 
-  const showDropdown = focused && filtered.length > 0;
+  const showDropdown =
+    focused && filtered.length > 0;
 
   useEffect(() => {
     Animated.timing(labelAnim, {
-      toValue: focused || value.length > 0 ? 1 : 0,
+      toValue:
+        focused || value.length > 0 ? 1 : 0,
       duration: 160,
       easing: Easing.out(Easing.quad),
       useNativeDriver: false,
     }).start();
   }, [focused, value]);
-
-  useEffect(() => {
-    Animated.timing(dropdownAnim, {
-      toValue: showDropdown ? 1 : 0,
-      duration: 140,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [showDropdown]);
 
   return (
     <View style={[styles.field, { zIndex }]}>
@@ -172,7 +179,11 @@ function FloatingInput({
         <MaterialCommunityIcons
           name={icon}
           size={18}
-          color={focused ? COLORS_TOKENS.brand : COLORS_TOKENS.faint}
+          color={
+            focused
+              ? COLORS.brand
+              : COLORS.faint
+          }
         />
       </View>
 
@@ -188,7 +199,9 @@ function FloatingInput({
               inputRange: [0, 1],
               outputRange: [15, 11.5],
             }),
-            color: focused ? COLORS_TOKENS.brand : COLORS_TOKENS.faint,
+            color: focused
+              ? COLORS.brand
+              : COLORS.faint,
           },
         ]}
       >
@@ -199,35 +212,31 @@ function FloatingInput({
         value={value}
         onChangeText={onChangeText}
         onFocus={() => setFocused(true)}
-        onBlur={() => setTimeout(() => setFocused(false), 120)}
-        placeholder={focused ? placeholder : ''}
-        placeholderTextColor={COLORS_TOKENS.faint}
+        onBlur={() =>
+          setTimeout(
+            () => setFocused(false),
+            120,
+          )
+        }
+        placeholder={
+          focused ? placeholder : ''
+        }
+        placeholderTextColor={COLORS.faint}
         style={[
           styles.floatingInputControl,
-          focused && styles.floatingInputControlFocused,
+          focused &&
+            styles.floatingInputControlFocused,
         ]}
         autoCapitalize={autoCapitalize}
+        editable={editable}
       />
 
       {showDropdown && (
-        <Animated.View
-          style={[
-            styles.suggestionBox,
-            {
-              opacity: dropdownAnim,
-              transform: [
-                {
-                  translateY: dropdownAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-6, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
+        <View style={styles.suggestionBox}>
           {filtered.map((item, index) => {
-            const swatch = renderSwatch?.(item);
+            const swatch =
+              renderSwatch?.(item);
+
             return (
               <Pressable
                 key={item}
@@ -235,55 +244,88 @@ function FloatingInput({
                   onChangeText(item);
                   setFocused(false);
                 }}
-                style={({ pressed }) => [
+                style={[
                   styles.suggestionItem,
-                  index === filtered.length - 1 && styles.suggestionItemLast,
-                  pressed && styles.suggestionItemPressed,
+                  index ===
+                    filtered.length - 1 &&
+                    styles.suggestionItemLast,
                 ]}
               >
                 {swatch && (
                   <View
                     style={[
                       styles.suggestionSwatch,
-                      { backgroundColor: swatch },
-                      swatch === '#FFFFFF' && styles.suggestionSwatchBorder,
+                      {
+                        backgroundColor:
+                          swatch,
+                      },
+                      swatch === '#FFFFFF' &&
+                        styles.suggestionSwatchBorder,
                     ]}
                   />
                 )}
-                <Text style={styles.suggestionText}>{item}</Text>
+
+                <Text
+                  style={
+                    styles.suggestionText
+                  }
+                >
+                  {item}
+                </Text>
               </Pressable>
             );
           })}
-        </Animated.View>
+        </View>
       )}
     </View>
   );
 }
 
-// ---------------------------------------------------------------------------
-// SCREEN
-// ---------------------------------------------------------------------------
-
 export default function VehicleDetailsScreen() {
-  const [vehicleType, setVehicleType] = useState<VehicleType>('');
-  const [vehicleNumber, setVehicleNumber] = useState('');
-  const [vehicleModel, setVehicleModel] = useState('');
-  const [vehicleColor, setVehicleColor] = useState('');
-  const [error, setError] = useState('');
+  const [vehicleType, setVehicleType] =
+    useState<VehicleType>('');
 
-  const modelSuggestions = vehicleType === 'Auto' ? AUTO_MODELS : BIKE_MODELS;
-  const colorNames = COLOR_OPTIONS.map((c) => c.name);
+  const [vehicleNumber, setVehicleNumber] =
+    useState('');
+
+  const [vehicleModel, setVehicleModel] =
+    useState('');
+
+  const [vehicleColor, setVehicleColor] =
+    useState('');
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [error, setError] =
+    useState('');
+
+  const entrance = useRef(
+    new Animated.Value(0),
+  ).current;
+
+  const buttonScale = useRef(
+    new Animated.Value(1),
+  ).current;
+
+  const modelSuggestions =
+    vehicleType === 'Auto'
+      ? AUTO_MODELS
+      : BIKE_MODELS;
+
+  const colorNames =
+    COLOR_OPTIONS.map(
+      (item) => item.name,
+    );
+
   const swatchFor = (name: string) =>
-    COLOR_OPTIONS.find((c) => c.name === name)?.hex;
+    COLOR_OPTIONS.find(
+      (item) => item.name === name,
+    )?.hex;
 
-  const isComplete =
-    !!vehicleType &&
-    vehicleNumber.trim().length > 0 &&
-    vehicleModel.trim().length > 0 &&
-    vehicleColor.trim().length > 0;
-
-  // Entrance animation — a subtle fade + rise, standard on premium onboarding flows.
-  const entrance = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(entrance, {
       toValue: 1,
@@ -291,97 +333,370 @@ export default function VehicleDetailsScreen() {
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
+
+    loadVehicleDetails();
   }, []);
 
-  // Button press micro-interaction.
-  const buttonScale = useRef(new Animated.Value(1)).current;
-  const pressIn = () =>
-    Animated.spring(buttonScale, {
-      toValue: 0.97,
-      useNativeDriver: true,
-      speed: 40,
-    }).start();
-  const pressOut = () =>
-    Animated.spring(buttonScale, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 30,
-    }).start();
+  const getFirebaseToken = async () => {
+    const currentUser =
+      getAuth().currentUser;
 
-  const selectType = (type: VehicleType) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!currentUser) {
+      throw new Error(
+        'Your session has expired. Please login again.',
+      );
+    }
+
+    return currentUser.getIdToken();
+  };
+
+  const loadVehicleDetails = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const token =
+        await getFirebaseToken();
+
+      const response = await fetch(
+        `${API_URL}/api/rider/application`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+          },
+        },
+      );
+
+      const data: ApplicationResponse =
+        await response.json();
+
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.message ||
+            'Unable to load vehicle details.',
+        );
+      }
+
+      const vehicle =
+        data.vehicle;
+
+      if (!vehicle) {
+        return;
+      }
+
+      const backendType =
+        vehicle.vehicle_type?.toLowerCase();
+
+      if (backendType === 'bike') {
+        setVehicleType('Bike');
+      } else if (
+        backendType === 'auto'
+      ) {
+        setVehicleType('Auto');
+      } else {
+        setVehicleType('');
+      }
+
+      setVehicleNumber(
+        vehicle.registration_number
+          ?.toUpperCase() ?? '',
+      );
+
+      setVehicleModel(
+        vehicle.model ?? '',
+      );
+
+      setVehicleColor(
+        vehicle.color ?? '',
+      );
+    } catch (err) {
+      console.error(
+        '[RIDEX VEHICLE] Load error:',
+        err,
+      );
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to load vehicle details.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectType = (
+    type: VehicleType,
+  ) => {
+    if (saving) return;
+
+    Haptics.impactAsync(
+      Haptics.ImpactFeedbackStyle.Light,
+    );
+
     setVehicleType(type);
     setVehicleModel('');
     setError('');
   };
 
-  const continueNext = () => {
-    if (!vehicleType) {
-      setError('Please select your vehicle type.');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      return;
-    }
-    if (!vehicleNumber.trim()) {
-      setError('Please enter your vehicle number.');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      return;
-    }
-    if (!vehicleModel.trim()) {
-      setError('Please enter your vehicle model.');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      return;
-    }
-    if (!vehicleColor.trim()) {
-      setError('Please enter your vehicle color.');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      return;
-    }
+  const saveVehicleDetails =
+    async () => {
+      if (saving) return;
 
-    setError('');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.push('/documents');
+      setError('');
+
+      if (!vehicleType) {
+        setError(
+          'Please select your vehicle type.',
+        );
+
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Warning,
+        );
+
+        return;
+      }
+
+      const registrationNumber =
+        vehicleNumber.trim().toUpperCase();
+
+      if (registrationNumber.length < 3) {
+        setError(
+          'Please enter a valid vehicle number.',
+        );
+
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Warning,
+        );
+
+        return;
+      }
+
+      if (!vehicleModel.trim()) {
+        setError(
+          'Please enter your vehicle model.',
+        );
+
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Warning,
+        );
+
+        return;
+      }
+
+      if (!vehicleColor.trim()) {
+        setError(
+          'Please enter your vehicle color.',
+        );
+
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Warning,
+        );
+
+        return;
+      }
+
+      try {
+        setSaving(true);
+
+        const token =
+          await getFirebaseToken();
+
+        const backendVehicleType =
+          vehicleType === 'Bike'
+            ? 'bike'
+            : 'auto';
+
+        const response = await fetch(
+          `${API_URL}/api/rider/application/vehicle`,
+          {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type':
+                'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({
+              vehicleType:
+                backendVehicleType,
+
+              /*
+               * The current RIDEX UI collects
+               * the complete model name rather
+               * than a separate manufacturer.
+               */
+              make: null,
+
+              model:
+                vehicleModel.trim(),
+
+              color:
+                vehicleColor.trim(),
+
+              registrationNumber,
+
+              registrationYear: null,
+            }),
+          },
+        );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          data.success !== true
+        ) {
+          throw new Error(
+            data.message ||
+              'Unable to save vehicle details.',
+          );
+        }
+
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        );
+
+        /*
+         * Navigate ONLY after backend
+         * confirms the save.
+         */
+        router.push('/documents');
+      } catch (err) {
+        console.error(
+          '[RIDEX VEHICLE] Save error:',
+          err,
+        );
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Unable to save vehicle details.',
+        );
+
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Error,
+        );
+      } finally {
+        setSaving(false);
+      }
+    };
+
+  const pressIn = () => {
+    Animated.spring(buttonScale, {
+      toValue: 0.97,
+      useNativeDriver: true,
+      speed: 40,
+    }).start();
   };
 
+  const pressOut = () => {
+    Animated.spring(buttonScale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 30,
+    }).start();
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView
+        style={styles.loadingScreen}
+      >
+        <ActivityIndicator
+          size="large"
+          color={COLORS.brand}
+        />
+
+        <Text
+          style={styles.loadingText}
+        >
+          Loading your vehicle details...
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={styles.safeArea}
+    >
       <ScrollView
-        contentContainerStyle={styles.container}
+        contentContainerStyle={
+          styles.container
+        }
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {/* HEADER */}
+
         <View style={styles.header}>
-          <Pressable onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace('/personal-details');
-            }
-          }} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={22} color={COLORS_TOKENS.ink} />
+          <Pressable
+            onPress={() => {
+              if (saving) return;
+
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace(
+                  '/personal-details',
+                );
+              }
+            }}
+            style={styles.backButton}
+          >
+            <Ionicons
+              name="chevron-back"
+              size={22}
+              color={COLORS.ink}
+            />
           </Pressable>
 
           <View>
-            <Text style={styles.step}>STEP 2 OF 3</Text>
-            <Text style={styles.headerTitle}>Vehicle details</Text>
+            <Text style={styles.step}>
+              STEP 2 OF 3
+            </Text>
+
+            <Text
+              style={styles.headerTitle}
+            >
+              Vehicle details
+            </Text>
           </View>
         </View>
 
         {/* PROGRESS */}
-        <View style={styles.progressContainer}>
+
+        <View
+          style={
+            styles.progressContainer
+          }
+        >
           <LinearGradient
             colors={GRADIENT_BRAND}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.progressSegment}
           />
+
           <LinearGradient
             colors={GRADIENT_BRAND}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.progressSegment}
           />
-          <View style={styles.progressInactive} />
+
+          <View
+            style={
+              styles.progressInactive
+            }
+          />
         </View>
 
         <Animated.View
@@ -389,10 +704,11 @@ export default function VehicleDetailsScreen() {
             opacity: entrance,
             transform: [
               {
-                translateY: entrance.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [14, 0],
-                }),
+                translateY:
+                  entrance.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [14, 0],
+                  }),
               },
             ],
             position: 'relative',
@@ -400,149 +716,301 @@ export default function VehicleDetailsScreen() {
           }}
         >
           {/* INTRO */}
+
           <View style={styles.intro}>
-            <Text style={styles.title}>Tell us about{'\n'}your vehicle</Text>
-            <Text style={styles.subtitle}>
-              Add the vehicle you'll use for RIDEX rides.
+            <Text style={styles.title}>
+              Tell us about{'\n'}your vehicle
+            </Text>
+
+            <Text
+              style={styles.subtitle}
+            >
+              Add the vehicle you'll use for
+              RIDEX rides.
             </Text>
           </View>
 
           {/* FORM CARD */}
+
           <View style={styles.card}>
-            {/* VEHICLE TYPE */}
-            <Text style={styles.cardLabel}>Vehicle type</Text>
+            <Text
+              style={styles.cardLabel}
+            >
+              Vehicle type
+            </Text>
+
             <View style={styles.typeRow}>
-              {(
-                [
-                  { key: 'Bike', icon: 'motorbike', title: 'Bike' },
-                  { key: 'Auto', icon: 'rickshaw', title: 'Auto' },
-                ] as const
-              ).map((option) => {
-                const active = vehicleType === option.key;
-                return (
-                  <Pressable
-                    key={option.key}
-                    onPress={() => selectType(option.key)}
-                    style={[styles.typeCard, active && styles.typeCardActive]}
+              <Pressable
+                onPress={() =>
+                  selectType('Bike')
+                }
+                disabled={saving}
+                style={[
+                  styles.typeCard,
+                  vehicleType === 'Bike' &&
+                    styles.typeCardActive,
+                ]}
+              >
+                {vehicleType ===
+                  'Bike' && (
+                  <View
+                    style={styles.typeCheck}
                   >
-                    {active && (
-                      <View style={styles.typeCheck}>
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={16}
-                          color={COLORS_TOKENS.brand}
-                        />
-                      </View>
-                    )}
-                    <View
-                      style={[
-                        styles.typeIconCircle,
-                        active && styles.typeIconCircleActive,
-                      ]}
-                    >
-                      <MaterialCommunityIcons
-                        name={option.icon}
-                        size={22}
-                        color={active ? '#FFFFFF' : COLORS_TOKENS.muted}
-                      />
-                    </View>
-                    <Text
-                      style={[styles.typeText, active && styles.typeTextActive]}
-                    >
-                      {option.title}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={16}
+                      color={COLORS.brand}
+                    />
+                  </View>
+                )}
+
+                <View
+                  style={[
+                    styles.typeIconCircle,
+                    vehicleType ===
+                      'Bike' &&
+                      styles.typeIconCircleActive,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="motorbike"
+                    size={22}
+                    color={
+                      vehicleType ===
+                      'Bike'
+                        ? '#FFFFFF'
+                        : COLORS.muted
+                    }
+                  />
+                </View>
+
+                <Text
+                  style={[
+                    styles.typeText,
+                    vehicleType ===
+                      'Bike' &&
+                      styles.typeTextActive,
+                  ]}
+                >
+                  Bike
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() =>
+                  selectType('Auto')
+                }
+                disabled={saving}
+                style={[
+                  styles.typeCard,
+                  vehicleType === 'Auto' &&
+                    styles.typeCardActive,
+                ]}
+              >
+                {vehicleType ===
+                  'Auto' && (
+                  <View
+                    style={styles.typeCheck}
+                  >
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={16}
+                      color={COLORS.brand}
+                    />
+                  </View>
+                )}
+
+                <View
+                  style={[
+                    styles.typeIconCircle,
+                    vehicleType ===
+                      'Auto' &&
+                      styles.typeIconCircleActive,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="rickshaw"
+                    size={22}
+                    color={
+                      vehicleType ===
+                      'Auto'
+                        ? '#FFFFFF'
+                        : COLORS.muted
+                    }
+                  />
+                </View>
+
+                <Text
+                  style={[
+                    styles.typeText,
+                    vehicleType ===
+                      'Auto' &&
+                      styles.typeTextActive,
+                  ]}
+                >
+                  Auto
+                </Text>
+              </Pressable>
             </View>
 
-            <View style={styles.divider} />
+            <View
+              style={styles.divider}
+            />
 
-            {/* VEHICLE NUMBER */}
             <FloatingInput
               label="Vehicle number"
               value={vehicleNumber}
-              onChangeText={(t) => {
-                setVehicleNumber(t.toUpperCase());
+              onChangeText={(text) => {
+                setVehicleNumber(
+                  text.toUpperCase(),
+                );
                 setError('');
               }}
               placeholder="AP 16 AB 1234"
               icon="card-text-outline"
               autoCapitalize="characters"
               zIndex={30}
+              editable={!saving}
             />
 
-            <View style={styles.divider} />
+            <View
+              style={styles.divider}
+            />
 
-            {/* VEHICLE MODEL */}
             <FloatingInput
               label="Vehicle model"
               value={vehicleModel}
-              onChangeText={(t) => {
-                setVehicleModel(t);
+              onChangeText={(text) => {
+                setVehicleModel(text);
                 setError('');
               }}
               placeholder={
-                vehicleType === 'Auto' ? 'Bajaj RE Compact' : 'Honda Activa'
+                vehicleType === 'Auto'
+                  ? 'Bajaj RE Compact'
+                  : 'Honda Activa'
               }
               icon="engine-outline"
-              suggestions={modelSuggestions}
+              suggestions={
+                modelSuggestions
+              }
               zIndex={20}
+              editable={!saving}
             />
 
-            <View style={styles.divider} />
+            <View
+              style={styles.divider}
+            />
 
-            {/* VEHICLE COLOR */}
             <FloatingInput
               label="Vehicle color"
               value={vehicleColor}
-              onChangeText={(t) => {
-                setVehicleColor(t);
+              onChangeText={(text) => {
+                setVehicleColor(text);
                 setError('');
               }}
               placeholder="Black"
               icon="palette-outline"
-              suggestions={colorNames}
-              renderSwatch={swatchFor}
+              suggestions={
+                colorNames
+              }
+              renderSwatch={
+                swatchFor
+              }
               zIndex={10}
+              editable={!saving}
             />
           </View>
 
           {/* ERROR */}
+
           {error !== '' && (
-            <View style={styles.errorBanner}>
+            <View
+              style={styles.errorBanner}
+            >
               <Ionicons
                 name="alert-circle"
                 size={18}
-                color={COLORS_TOKENS.danger}
+                color={COLORS.danger}
               />
-              <Text style={styles.errorText}>{error}</Text>
+
+              <Text
+                style={styles.errorText}
+              >
+                {error}
+              </Text>
             </View>
           )}
         </Animated.View>
 
         {/* BOTTOM */}
+
         <View style={styles.bottom}>
-          <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+          <Animated.View
+            style={{
+              transform: [
+                {
+                  scale: buttonScale,
+                },
+              ],
+            }}
+          >
             <Pressable
-              onPress={continueNext}
+              onPress={
+                saveVehicleDetails
+              }
               onPressIn={pressIn}
               onPressOut={pressOut}
+              disabled={saving}
             >
               <LinearGradient
                 colors={GRADIENT_INK}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={[styles.button, !isComplete && styles.buttonMuted]}
+                style={[
+                  styles.button,
+                  saving &&
+                    styles.buttonDisabled,
+                ]}
               >
-                <Text style={styles.buttonText}>Continue</Text>
-                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                {saving ? (
+                  <>
+                    <ActivityIndicator
+                      size="small"
+                      color="#FFFFFF"
+                    />
+
+                    <Text
+                      style={
+                        styles.buttonText
+                      }
+                    >
+                      Saving...
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text
+                      style={
+                        styles.buttonText
+                      }
+                    >
+                      Continue
+                    </Text>
+
+                    <Ionicons
+                      name="arrow-forward"
+                      size={18}
+                      color="#FFFFFF"
+                    />
+                  </>
+                )}
               </LinearGradient>
             </Pressable>
           </Animated.View>
 
           <Text style={styles.note}>
-            Your vehicle details help us verify your rider account.
+            Your vehicle details help us
+            verify your rider account.
           </Text>
         </View>
       </ScrollView>
@@ -550,14 +1018,23 @@ export default function VehicleDetailsScreen() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// STYLES
-// ---------------------------------------------------------------------------
-
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: COLORS_TOKENS.bg,
+    backgroundColor: COLORS.bg,
+  },
+
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: COLORS.muted,
   },
 
   container: {
@@ -566,8 +1043,6 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 24,
   },
-
-  /* HEADER */
 
   header: {
     flexDirection: 'row',
@@ -579,11 +1054,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: COLORS_TOKENS.card,
+    backgroundColor: COLORS.card,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#0D1117',
-    shadowOffset: { width: 0, height: 2 },
+    shadowColor: COLORS.ink,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     shadowOpacity: 0.06,
     shadowRadius: 6,
     elevation: 2,
@@ -593,18 +1071,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.4,
-    color: COLORS_TOKENS.brand,
+    color: COLORS.brand,
     marginBottom: 2,
   },
 
   headerTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: COLORS_TOKENS.ink,
-    letterSpacing: -0.2,
+    color: COLORS.ink,
   },
-
-  /* PROGRESS */
 
   progressContainer: {
     flexDirection: 'row',
@@ -622,10 +1097,8 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 4,
     borderRadius: 4,
-    backgroundColor: COLORS_TOKENS.border,
+    backgroundColor: COLORS.border,
   },
-
-  /* INTRO */
 
   intro: {
     marginTop: 30,
@@ -636,7 +1109,7 @@ const styles = StyleSheet.create({
     fontSize: 30,
     lineHeight: 36,
     fontWeight: '800',
-    color: COLORS_TOKENS.ink,
+    color: COLORS.ink,
     letterSpacing: -0.8,
   },
 
@@ -644,19 +1117,20 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 14.5,
     lineHeight: 21,
-    color: COLORS_TOKENS.muted,
+    color: COLORS.muted,
   },
 
-  /* FORM CARD */
-
   card: {
-    backgroundColor: COLORS_TOKENS.card,
+    backgroundColor: COLORS.card,
     borderRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 22,
     paddingBottom: 6,
-    shadowColor: '#0D1117',
-    shadowOffset: { width: 0, height: 10 },
+    shadowColor: COLORS.ink,
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
     shadowOpacity: 0.06,
     shadowRadius: 24,
     elevation: 3,
@@ -667,19 +1141,11 @@ const styles = StyleSheet.create({
   cardLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: COLORS_TOKENS.muted,
+    color: COLORS.muted,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 12,
   },
-
-  divider: {
-    height: 1,
-    backgroundColor: '#F1F2F5',
-    marginVertical: 18,
-  },
-
-  /* VEHICLE TYPE */
 
   typeRow: {
     flexDirection: 'row',
@@ -690,7 +1156,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: COLORS_TOKENS.border,
+    borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 18,
@@ -698,8 +1164,8 @@ const styles = StyleSheet.create({
   },
 
   typeCardActive: {
-    borderColor: COLORS_TOKENS.brand,
-    backgroundColor: COLORS_TOKENS.brandTint,
+    borderColor: COLORS.brand,
+    backgroundColor: COLORS.brandTint,
   },
 
   typeCheck: {
@@ -719,21 +1185,25 @@ const styles = StyleSheet.create({
   },
 
   typeIconCircleActive: {
-    backgroundColor: COLORS_TOKENS.brand,
+    backgroundColor: COLORS.brand,
   },
 
   typeText: {
     fontSize: 14,
     fontWeight: '600',
-    color: COLORS_TOKENS.muted,
+    color: COLORS.muted,
   },
 
   typeTextActive: {
-    color: COLORS_TOKENS.brandDark,
+    color: COLORS.brandDark,
     fontWeight: '700',
   },
 
-  /* FLOATING INPUT */
+  divider: {
+    height: 1,
+    backgroundColor: '#F1F2F5',
+    marginVertical: 18,
+  },
 
   field: {
     position: 'relative',
@@ -757,16 +1227,14 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     fontSize: 16,
     fontWeight: '600',
-    color: COLORS_TOKENS.ink,
+    color: COLORS.ink,
     borderBottomWidth: 1.5,
     borderBottomColor: 'transparent',
   },
 
   floatingInputControlFocused: {
-    borderBottomColor: COLORS_TOKENS.brand,
+    borderBottomColor: COLORS.brand,
   },
-
-  /* SUGGESTIONS */
 
   suggestionBox: {
     position: 'absolute',
@@ -776,10 +1244,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: COLORS_TOKENS.border,
+    borderColor: COLORS.border,
     paddingVertical: 4,
-    shadowColor: '#0D1117',
-    shadowOffset: { width: 0, height: 8 },
+    shadowColor: COLORS.ink,
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
     shadowOpacity: 0.1,
     shadowRadius: 18,
     elevation: 8,
@@ -799,10 +1270,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
   },
 
-  suggestionItemPressed: {
-    backgroundColor: '#F7FAF8',
-  },
-
   suggestionSwatch: {
     width: 16,
     height: 16,
@@ -817,16 +1284,14 @@ const styles = StyleSheet.create({
   suggestionText: {
     fontSize: 15,
     fontWeight: '500',
-    color: COLORS_TOKENS.ink,
+    color: COLORS.ink,
   },
-
-  /* ERROR */
 
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: COLORS_TOKENS.dangerTint,
+    backgroundColor: COLORS.dangerTint,
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -836,11 +1301,9 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS_TOKENS.danger,
+    color: COLORS.danger,
     flexShrink: 1,
   },
-
-  /* BOTTOM */
 
   bottom: {
     marginTop: 'auto',
@@ -856,15 +1319,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    shadowColor: COLORS_TOKENS.ink,
-    shadowOffset: { width: 0, height: 10 },
+    shadowColor: COLORS.ink,
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
     shadowOpacity: 0.22,
     shadowRadius: 20,
     elevation: 6,
   },
 
-  buttonMuted: {
-    opacity: 0.55,
+  buttonDisabled: {
+    opacity: 0.65,
   },
 
   buttonText: {
@@ -880,6 +1346,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     fontSize: 11.5,
     lineHeight: 17,
-    color: COLORS_TOKENS.faint,
+    color: COLORS.faint,
   },
 });

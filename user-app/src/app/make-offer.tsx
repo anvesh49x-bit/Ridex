@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 
 import {
+  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -20,10 +21,16 @@ import {
 } from 'expo-router';
 
 import { Ionicons } from '@expo/vector-icons';
-
+import { getAuth } from '@react-native-firebase/auth';
 
 /* =========================================================================
-   RIDEX COLORS START
+   RIDEX CONFIG
+   ========================================================================= */
+
+const API_BASE_URL = 'http://10.134.158.132:3000';
+
+/* =========================================================================
+   COLORS
    ========================================================================= */
 
 const COLORS = {
@@ -50,20 +57,8 @@ const COLORS = {
 };
 
 /* =========================================================================
-   RIDEX COLORS END
+   ASSETS
    ========================================================================= */
-
-
-/* =========================================================================
-   RIDEX OFFER ASSETS START
-   ========================================================================= */
-
-/*
-  These files must exist here:
-
-  assets/images/offer-scooter-rider.png
-  assets/images/offer-city.png
-*/
 
 const OFFER_SCOOTER =
   require('../../assets/images/offer-scooter-rider.png');
@@ -72,12 +67,7 @@ const OFFER_CITY =
   require('../../assets/images/offer-city.png');
 
 /* =========================================================================
-   RIDEX OFFER ASSETS END
-   ========================================================================= */
-
-
-/* =========================================================================
-   RIDEX TYPES START
+   TYPES
    ========================================================================= */
 
 type PaymentMethod = 'cash' | 'upi';
@@ -89,38 +79,85 @@ type OfferStatus =
   | 'above';
 
 /* =========================================================================
-   RIDEX TYPES END
+   HELPERS
    ========================================================================= */
 
+const roundToFive = (value: number) =>
+  Math.round(value / 5) * 5;
+
+const money = (value: number) =>
+  `₹${Math.round(value)}`;
 
 /* =========================================================================
-   RIDEX HELPERS START
+   API
    ========================================================================= */
 
-const roundToFive = (
-  value: number,
-) => {
-  return Math.round(value / 5) * 5;
-};
+async function getFirebaseToken(): Promise<string> {
+  const user = getAuth().currentUser;
 
+  if (!user) {
+    throw new Error(
+      'You are not logged in. Please login again.',
+    );
+  }
 
-const money = (
-  value: number,
-) => {
-  return `₹${Math.round(value)}`;
-};
+  return user.getIdToken();
+}
+
+async function createRide(payload: {
+  pickup: {
+    lat: number;
+    lng: number;
+    name: string;
+    address: string;
+  };
+
+  drop: {
+    lat: number;
+    lng: number;
+    name: string;
+    address: string;
+  };
+
+  vehicleType: string;
+  passengerOffer: number;
+  paymentMethod: PaymentMethod;
+  note?: string;
+}) {
+  const token = await getFirebaseToken();
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/rides`,
+    {
+      method: 'POST',
+
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+
+      body: JSON.stringify(payload),
+    },
+  );
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(
+      data?.error ||
+        data?.message ||
+        'Failed to create ride.',
+    );
+  }
+
+  return data.ride;
+}
 
 /* =========================================================================
-   RIDEX HELPERS END
-   ========================================================================= */
-
-
-/* =========================================================================
-   YOUR OFFER SCREEN START
+   SCREEN
    ========================================================================= */
 
 export default function MakeOfferScreen() {
-
   const router = useRouter();
 
   const params =
@@ -128,8 +165,14 @@ export default function MakeOfferScreen() {
       pickupName?: string;
       pickupAddress?: string;
 
+      pickupLat?: string;
+      pickupLng?: string;
+
       dropName?: string;
       dropAddress?: string;
+
+      dropLat?: string;
+      dropLng?: string;
 
       distanceText?: string;
       durationText?: string;
@@ -139,12 +182,14 @@ export default function MakeOfferScreen() {
       suggestedFare?: string;
 
       vehicle?: string;
+      pricingMode?: string;
+
+      userOffer?: string;
     }>();
 
-
-  /* =======================================================================
-     TRIP DATA START
-     ======================================================================= */
+  /* =========================================================================
+     TRIP DATA
+     ========================================================================= */
 
   const pickupName =
     params.pickupName ||
@@ -161,6 +206,18 @@ export default function MakeOfferScreen() {
   const dropAddress =
     params.dropAddress ||
     '';
+
+  const pickupLat =
+    Number(params.pickupLat);
+
+  const pickupLng =
+    Number(params.pickupLng);
+
+  const dropLat =
+    Number(params.dropLat);
+
+  const dropLng =
+    Number(params.dropLng);
 
   const distanceText =
     params.distanceText ||
@@ -179,54 +236,44 @@ export default function MakeOfferScreen() {
   const recommendedFare =
     Number(params.suggestedFare) || 0;
 
-  /* =======================================================================
-     TRIP DATA END
-     ======================================================================= */
-
-
-  /* =======================================================================
-     OFFER STATE START
-     ======================================================================= */
+  /* =========================================================================
+     OFFER STATE
+     ========================================================================= */
 
   const initialOffer =
-    recommendedFare > 0
-      ? roundToFive(recommendedFare)
-      : minimumFare > 0
-        ? roundToFive(minimumFare)
-        : 0;
+    Number(params.userOffer) > 0
+      ? roundToFive(
+          Number(params.userOffer),
+        )
+      : recommendedFare > 0
+        ? roundToFive(
+            recommendedFare,
+          )
+        : minimumFare > 0
+          ? roundToFive(
+              minimumFare,
+            )
+          : 0;
 
+  const [offer, setOffer] =
+    useState(
+      initialOffer > 0
+        ? String(initialOffer)
+        : '',
+    );
 
-  const [
-    offer,
-    setOffer,
-  ] = useState(
-    initialOffer > 0
-      ? String(initialOffer)
-      : '',
-  );
+  const [paymentMethod, setPaymentMethod] =
+    useState<PaymentMethod>('cash');
 
+  const [note, setNote] =
+    useState('');
 
-  const [
-    paymentMethod,
-    setPaymentMethod,
-  ] = useState<PaymentMethod>(
-    'cash',
-  );
+  const [submitting, setSubmitting] =
+    useState(false);
 
-
-  const [
-    note,
-    setNote,
-  ] = useState('');
-
-  /* =======================================================================
-     OFFER STATE END
-     ======================================================================= */
-
-
-  /* =======================================================================
-     OFFER STATUS START
-     ======================================================================= */
+  /* =========================================================================
+     OFFER VALUE
+     ========================================================================= */
 
   const offerAmount =
     Number(
@@ -236,10 +283,12 @@ export default function MakeOfferScreen() {
       ),
     ) || 0;
 
+  /* =========================================================================
+     OFFER STATUS
+     ========================================================================= */
 
   const offerStatus: OfferStatus =
     useMemo(() => {
-
       if (offerAmount <= 0) {
         return 'empty';
       }
@@ -259,16 +308,13 @@ export default function MakeOfferScreen() {
       }
 
       return 'above';
-
     }, [
       offerAmount,
       minimumFare,
       maximumFare,
     ]);
 
-
   const statusConfig = {
-
     empty: {
       text: 'Enter your offer',
       color: COLORS.gray,
@@ -278,7 +324,7 @@ export default function MakeOfferScreen() {
     },
 
     within: {
-      text: 'Within range',
+      text: 'Within suggested range',
       color: COLORS.green,
       background: COLORS.greenVerySoft,
       border: '#BCE7CF',
@@ -286,7 +332,7 @@ export default function MakeOfferScreen() {
     },
 
     below: {
-      text: 'Below range',
+      text: 'Below suggested range',
       color: '#C48100',
       background: COLORS.yellowSoft,
       border: '#E9D58D',
@@ -294,130 +340,203 @@ export default function MakeOfferScreen() {
     },
 
     above: {
-      text: 'Above range',
+      text: 'Above suggested range',
       color: COLORS.blue,
       background: COLORS.blueSoft,
       border: '#C7DBF5',
       icon: 'information-circle',
     },
-
   }[offerStatus];
 
-  /* =======================================================================
-     OFFER STATUS END
-     ======================================================================= */
-
-
-  /* =======================================================================
-     QUICK AMOUNTS START
-     ======================================================================= */
+  /* =========================================================================
+     QUICK AMOUNTS
+     ========================================================================= */
 
   const quickAmounts =
     useMemo(() => {
-
       const center =
         offerAmount ||
         recommendedFare ||
         minimumFare;
 
-
       if (center <= 0) {
         return [];
       }
 
-
-      const values = [
-        minimumFare,
-        minimumFare + 5,
-        center,
-        center + 5,
-        center + 10,
-      ];
-
-
       return Array.from(
         new Set(
-          values
+          [
+            minimumFare,
+            minimumFare + 5,
+            center,
+            center + 5,
+            center + 10,
+          ]
             .filter(
               value => value > 0,
             )
-            .map(
-              value =>
-                roundToFive(value),
-            ),
+            .map(roundToFive),
         ),
       ).slice(0, 5);
-
     }, [
       minimumFare,
       recommendedFare,
       offerAmount,
     ]);
 
-  /* =======================================================================
-     QUICK AMOUNTS END
-     ======================================================================= */
+  /* =========================================================================
+     CREATE REAL RIDE
+     ========================================================================= */
 
+  const handleSendRequest =
+    async () => {
+      if (offerAmount <= 0) {
+        Alert.alert(
+          'Enter your offer',
+          'Please enter the amount you would like to offer.',
+        );
+        return;
+      }
 
-  /* =======================================================================
-     SEND REQUEST START
-     ======================================================================= */
+      if (
+        minimumFare > 0 &&
+        maximumFare > 0 &&
+        (
+          offerAmount < minimumFare ||
+          offerAmount > maximumFare
+        )
+      ) {
+        Alert.alert(
+          'Choose an amount in the suggested range',
+          `For this ride, choose between ${money(
+            minimumFare,
+          )} and ${money(maximumFare)}.`,
+        );
+        return;
+      }
 
-  const handleSendRequest = () => {
+      if (
+        !Number.isFinite(pickupLat) ||
+        !Number.isFinite(pickupLng) ||
+        !Number.isFinite(dropLat) ||
+        !Number.isFinite(dropLng)
+      ) {
+        Alert.alert(
+          'Location unavailable',
+          'Pickup or destination coordinates are missing. Please go back and select the locations again.',
+        );
+        return;
+      }
 
-  if (offerAmount <= 0) {
+      if (submitting) {
+        return;
+      }
 
-    Alert.alert(
-      'Enter your offer',
-      'Please enter the amount you would like to offer.',
-    );
+      setSubmitting(true);
 
-    return;
-  }
+      try {
+        const ride =
+          await createRide({
+            pickup: {
+              lat: pickupLat,
+              lng: pickupLng,
+              name: pickupName,
+              address: pickupAddress,
+            },
 
+            drop: {
+              lat: dropLat,
+              lng: dropLng,
+              name: dropName,
+              address: dropAddress,
+            },
 
-  router.push({
-  pathname: '/rider-responses' as any,
-  
-    params: {
-      pickupName,
-      pickupAddress,
+            vehicleType:
+              params.vehicle ||
+              'bike',
 
-      dropName,
-      dropAddress,
+            passengerOffer:
+              offerAmount,
 
-      distanceText,
-      durationText,
+            paymentMethod,
 
-      vehicle:
-        params.vehicle ||
-        'bike',
+            note:
+              note.trim() ||
+              undefined,
+          });
 
-      userOffer:
-        String(offerAmount),
+        console.log(
+          'RIDEX REAL RIDE CREATED:',
+          ride,
+        );
 
-      paymentMethod,
+        router.replace({
+          pathname: '/rider-responses',
 
-      note,
-    },
-  });
+          params: {
+            rideId: String(ride.id),
 
-};
-  /* =======================================================================
-     SEND REQUEST END
-     ======================================================================= */
+            pickupName,
+            pickupAddress,
 
+            pickupLat:
+              String(pickupLat),
 
-  /* =======================================================================
-     RENDER START
-     ======================================================================= */
+            pickupLng:
+              String(pickupLng),
+
+            dropName,
+            dropAddress,
+
+            dropLat:
+              String(dropLat),
+
+            dropLng:
+              String(dropLng),
+
+            distanceText,
+            durationText,
+
+            vehicle:
+              params.vehicle ||
+              'bike',
+
+            pricingMode:
+              'manual',
+
+            userOffer:
+              String(offerAmount),
+
+            paymentMethod,
+
+            note,
+          },
+        });
+      } catch (error) {
+        console.error(
+          'RIDEX CREATE RIDE ERROR:',
+          error,
+        );
+
+        Alert.alert(
+          'Could not request ride',
+          error instanceof Error
+            ? error.message
+            : 'Something went wrong. Please try again.',
+        );
+      } finally {
+        setSubmitting(false);
+      }
+    };
+
+  /* =========================================================================
+     RENDER
+     ========================================================================= */
 
   return (
-
     <SafeAreaView
       style={styles.safeArea}
     >
-
       <KeyboardAvoidingView
         style={styles.keyboard}
         behavior={
@@ -426,63 +545,53 @@ export default function MakeOfferScreen() {
             : undefined
         }
       >
-
         <ScrollView
           style={styles.screen}
           contentContainerStyle={
             styles.content
           }
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={
+            false
+          }
           keyboardShouldPersistTaps="handled"
         >
 
-
-          {/* ================================================================
-              HEADER START
-          ================================================================ */}
+          {/* HEADER */}
 
           <View style={styles.header}>
-
             <Pressable
               style={styles.backButton}
               onPress={() =>
                 router.back()
               }
+              disabled={submitting}
             >
-
               <Ionicons
                 name="arrow-back"
                 size={28}
                 color={COLORS.black}
               />
-
             </Pressable>
-
 
             <View
               style={styles.headerCenter}
             >
-
               <Text
                 style={styles.headerTitle}
               >
                 Your Offer
               </Text>
 
-
               <Text
                 style={styles.headerSubtitle}
               >
                 You set the price, riders make it happen
               </Text>
-
             </View>
-
 
             <View
               style={styles.safeRides}
             >
-
               <Ionicons
                 name="shield-checkmark"
                 size={22}
@@ -494,209 +603,124 @@ export default function MakeOfferScreen() {
               >
                 Safe Rides
               </Text>
-
             </View>
-
           </View>
 
-          {/* ================================================================
-              HEADER END
-          ================================================================ */}
+          {/* TRIP */}
 
-
-          {/* ================================================================
-              TRIP CARD START
-          ================================================================ */}
-
-          <View
-            style={styles.tripCard}
-          >
-
+          <View style={styles.tripCard}>
             <View
-              style={styles.tripHeaderRow}
+              style={styles.locationRow}
             >
-
               <View
-                style={styles.tripLocations}
+                style={styles.timeline}
               >
-
-
-                {/* PICKUP START */}
-
-                <View
-                  style={styles.locationRow}
-                >
-
-                  <View
-                    style={styles.timeline}
-                  >
-
-                    <View
-                      style={styles.pickupDot}
-                    >
-
-                      <View
-                        style={
-                          styles.pickupDotInner
-                        }
-                      />
-
-                    </View>
-
-
-                    <View
-                      style={styles.dashedLine}
-                    />
-
-                  </View>
-
-
-                  <View
-                    style={
-                      styles.locationContent
-                    }
-                  >
-
-                    <Text
-                      style={
-                        styles.pickupLabel
-                      }
-                    >
-                      Pickup
-                    </Text>
-
-
-                    <Text
-                      style={
-                        styles.locationName
-                      }
-                      numberOfLines={1}
-                    >
-                      {pickupName}
-                    </Text>
-
-
-                    <Text
-                      style={
-                        styles.locationAddress
-                      }
-                      numberOfLines={1}
-                    >
-                      {pickupAddress}
-                    </Text>
-
-                  </View>
-
-                </View>
-
-                {/* PICKUP END */}
-
-
-                {/* DROP START */}
+              <View
+  style={styles.pickupDot}
+>
+  <View
+    style={
+      styles.pickupDotInner
+    }
+  />
+</View>
 
                 <View
-                  style={styles.locationRow}
-                >
-
-                  <View
-                    style={styles.timeline}
-                  >
-
-                    <View
-                      style={styles.dropPin}
-                    >
-
-                      <Ionicons
-                        name="location"
-                        size={18}
-                        color={COLORS.white}
-                      />
-
-                    </View>
-
-                  </View>
-
-
-                  <View
-                    style={
-                      styles.locationContent
-                    }
-                  >
-
-                    <Text
-                      style={
-                        styles.dropLabel
-                      }
-                    >
-                      Drop
-                    </Text>
-
-
-                    <Text
-                      style={
-                        styles.locationName
-                      }
-                      numberOfLines={2}
-                    >
-                      {dropName}
-                    </Text>
-
-
-                    <Text
-                      style={
-                        styles.locationAddress
-                      }
-                      numberOfLines={1}
-                    >
-                      {dropAddress}
-                    </Text>
-
-                  </View>
-
-                </View>
-
-                {/* DROP END */}
-
+                  style={styles.dashedLine}
+                />
               </View>
 
-
-              <Pressable
-                style={styles.editButton}
-                onPress={() =>
-                  router.back()
+              <View
+                style={
+                  styles.locationContent
                 }
               >
-
-                <Ionicons
-                  name="pencil-outline"
-                  size={20}
-                  color={COLORS.black}
-                />
-
                 <Text
-                  style={styles.editText}
+                  style={
+                    styles.pickupLabel
+                  }
                 >
-                  Edit
+                  Pickup
                 </Text>
 
-              </Pressable>
+                <Text
+                  style={
+                    styles.locationName
+                  }
+                  numberOfLines={1}
+                >
+                  {pickupName}
+                </Text>
 
+                <Text
+                  style={
+                    styles.locationAddress
+                  }
+                  numberOfLines={1}
+                >
+                  {pickupAddress}
+                </Text>
+              </View>
             </View>
 
+            <View
+              style={styles.locationRow}
+            >
+              <View
+                style={styles.timeline}
+              >
+                <View
+                  style={styles.dropPin}
+                >
+                  <Ionicons
+                    name="location"
+                    size={18}
+                    color={COLORS.white}
+                  />
+                </View>
+              </View>
+
+              <View
+                style={
+                  styles.locationContent
+                }
+              >
+                <Text
+                  style={styles.dropLabel}
+                >
+                  Drop
+                </Text>
+
+                <Text
+                  style={
+                    styles.locationName
+                  }
+                  numberOfLines={2}
+                >
+                  {dropName}
+                </Text>
+
+                <Text
+                  style={
+                    styles.locationAddress
+                  }
+                  numberOfLines={1}
+                >
+                  {dropAddress}
+                </Text>
+              </View>
+            </View>
 
             <View
               style={styles.divider}
             />
 
-
             <View
               style={styles.tripStats}
             >
-
               <View
                 style={styles.tripStat}
               >
-
                 <Ionicons
                   name="navigate-outline"
                   size={22}
@@ -708,19 +732,15 @@ export default function MakeOfferScreen() {
                 >
                   {distanceText}
                 </Text>
-
               </View>
-
 
               <View
                 style={styles.statDivider}
               />
 
-
               <View
                 style={styles.tripStat}
               >
-
                 <Ionicons
                   name="time-outline"
                   size={22}
@@ -732,36 +752,20 @@ export default function MakeOfferScreen() {
                 >
                   {durationText}
                 </Text>
-
               </View>
-
             </View>
-
           </View>
 
-          {/* ================================================================
-              TRIP CARD END
-          ================================================================ */}
-
-
-          {/* ================================================================
-              SUGGESTED FARE CARD START
-          ================================================================ */}
+          {/* SUGGESTED FARE */}
 
           <View
             style={styles.suggestedCard}
           >
-
-            {/* CITY BACKGROUND */}
-
             <Image
               source={OFFER_CITY}
               style={styles.cityAsset}
               resizeMode="contain"
             />
-
-
-            {/* SCOOTER + RIDER */}
 
             <Image
               source={OFFER_SCOOTER}
@@ -769,17 +773,12 @@ export default function MakeOfferScreen() {
               resizeMode="contain"
             />
 
-
-            {/* FARE CONTENT */}
-
             <View
               style={styles.suggestedContent}
             >
-
               <View
                 style={styles.titleRow}
               >
-
                 <Text
                   style={
                     styles.suggestedTitle
@@ -788,63 +787,50 @@ export default function MakeOfferScreen() {
                   Suggested Fare
                 </Text>
 
-
                 <Ionicons
                   name="information-circle-outline"
                   size={18}
                   color={COLORS.gray}
                 />
-
               </View>
 
-
               <Text
-                style={styles.suggestedAmount}
-              >
-
-                {minimumFare > 0
-                  ? `${money(minimumFare)} – ${money(maximumFare)}`
-                  : 'Calculating...'
+                style={
+                  styles.suggestedAmount
                 }
-
+              >
+                {minimumFare > 0
+                  ? `${money(
+                      minimumFare,
+                    )} – ${money(
+                      maximumFare,
+                    )}`
+                  : 'Calculating...'}
               </Text>
-
 
               <View
                 style={
                   styles.suggestionNotice
                 }
               >
-
                 <Ionicons
                   name="bulb-outline"
                   size={19}
                   color={COLORS.black}
                 />
 
-
                 <Text
                   style={
                     styles.suggestionText
                   }
                 >
-                  This is a suggested fare. You can offer any price.
+                  Choose an amount within the suggested range.
                 </Text>
-
               </View>
-
             </View>
-
           </View>
 
-          {/* ================================================================
-              SUGGESTED FARE CARD END
-          ================================================================ */}
-
-
-          {/* ================================================================
-              OFFER SECTION START
-          ================================================================ */}
+          {/* OFFER */}
 
           <Text
             style={styles.sectionTitle}
@@ -852,39 +838,31 @@ export default function MakeOfferScreen() {
             How much would you like to offer?
           </Text>
 
-
-          {/* OFFER INPUT START */}
-
           <View
             style={[
               styles.offerBox,
-
               offerStatus === 'within' &&
                 styles.offerBoxActive,
             ]}
           >
-
             <View
               style={styles.offerInputRow}
             >
-
               <Text
                 style={styles.rupee}
               >
                 ₹
               </Text>
 
-
               <TextInput
                 value={offer}
-                onChangeText={
-                  value =>
-                    setOffer(
-                      value.replace(
-                        /[^0-9]/g,
-                        '',
-                      ),
-                    )
+                onChangeText={value =>
+                  setOffer(
+                    value.replace(
+                      /[^0-9]/g,
+                      '',
+                    ),
+                  )
                 }
                 keyboardType="number-pad"
                 placeholder="0"
@@ -893,15 +871,13 @@ export default function MakeOfferScreen() {
                 }
                 style={styles.offerInput}
                 maxLength={5}
+                editable={!submitting}
               />
-
             </View>
-
 
             <View
               style={[
                 styles.statusBadge,
-
                 {
                   backgroundColor:
                     statusConfig.background,
@@ -911,11 +887,9 @@ export default function MakeOfferScreen() {
                 },
               ]}
             >
-
               <Text
                 style={[
                   styles.statusText,
-
                   {
                     color:
                       statusConfig.color,
@@ -924,7 +898,6 @@ export default function MakeOfferScreen() {
               >
                 {statusConfig.text}
               </Text>
-
 
               <Ionicons
                 name={
@@ -935,15 +908,8 @@ export default function MakeOfferScreen() {
                   statusConfig.color
                 }
               />
-
             </View>
-
           </View>
-
-          {/* OFFER INPUT END */}
-
-
-          {/* QUICK AMOUNTS START */}
 
           <ScrollView
             horizontal
@@ -954,16 +920,14 @@ export default function MakeOfferScreen() {
               styles.quickRow
             }
           >
-
             {quickAmounts.map(
               amount => (
-
                 <Pressable
                   key={amount}
                   style={[
                     styles.quickButton,
-
-                    offerAmount === amount &&
+                    offerAmount ===
+                      amount &&
                       styles.quickButtonActive,
                   ]}
                   onPress={() =>
@@ -971,89 +935,24 @@ export default function MakeOfferScreen() {
                       String(amount),
                     )
                   }
+                  disabled={submitting}
                 >
-
                   <Text
                     style={[
                       styles.quickText,
-
-                      offerAmount === amount &&
+                      offerAmount ===
+                        amount &&
                         styles.quickTextActive,
                     ]}
                   >
                     ₹{amount}
                   </Text>
-
                 </Pressable>
-
               ),
             )}
-
-
-            <Pressable
-              style={styles.quickButton}
-              onPress={() =>
-                setOffer('')
-              }
-            >
-
-              <Text
-                style={styles.quickText}
-              >
-                Other
-              </Text>
-
-            </Pressable>
-
           </ScrollView>
 
-          {/* QUICK AMOUNTS END */}
-
-
-          {/* LOW OFFER TIP START */}
-
-          <View
-            style={styles.tipCard}
-          >
-
-            <Ionicons
-              name="pricetag"
-              size={21}
-              color={COLORS.blue}
-            />
-
-
-            <View
-              style={styles.tipContent}
-            >
-
-              <Text
-                style={styles.tipTitle}
-              >
-                Low offers get more responses!
-              </Text>
-
-
-              <Text
-                style={styles.tipText}
-              >
-                Riders are more likely to accept lower offers.
-              </Text>
-
-            </View>
-
-          </View>
-
-          {/* LOW OFFER TIP END */}
-
-          {/* ================================================================
-              OFFER SECTION END
-          ================================================================ */}
-
-
-          {/* ================================================================
-              PAYMENT SECTION START
-          ================================================================ */}
+          {/* PAYMENT */}
 
           <Text
             style={styles.paymentTitle}
@@ -1061,297 +960,211 @@ export default function MakeOfferScreen() {
             Payment method
           </Text>
 
-
-          {/* CASH */}
-
-          <Pressable
-            style={styles.paymentCard}
-            onPress={() =>
-              setPaymentMethod('cash')
-            }
-          >
-
-            <View
-              style={styles.paymentIcon}
-            >
-
-              <Ionicons
-                name="cash-outline"
-                size={23}
-                color={COLORS.green}
-              />
-
-            </View>
-
-
-            <View
-              style={styles.paymentContent}
-            >
-
-              <Text
-                style={styles.paymentName}
+          {(
+            [
+              ['cash', 'Cash', 'Pay after the ride'],
+              ['upi', 'UPI', 'Pay after the ride'],
+            ] as const
+          ).map(
+            ([value, title, subtitle]) => (
+              <Pressable
+                key={value}
+                style={styles.paymentCard}
+                onPress={() =>
+                  setPaymentMethod(
+                    value,
+                  )
+                }
+                disabled={submitting}
               >
-                Cash
-              </Text>
-
-
-              <Text
-                style={styles.paymentSub}
-              >
-                Pay after the ride
-              </Text>
-
-            </View>
-
-
-            <View
-              style={[
-                styles.radio,
-
-                paymentMethod === 'cash' &&
-                  styles.radioActive,
-              ]}
-            >
-
-              {paymentMethod === 'cash' && (
                 <View
                   style={
-                    styles.radioInner
+                    styles.paymentIcon
                   }
-                />
-              )}
+                >
+                  <Ionicons
+                    name={
+                      value === 'cash'
+                        ? 'cash-outline'
+                        : 'phone-portrait-outline'
+                    }
+                    size={23}
+                    color={COLORS.green}
+                  />
+                </View>
 
-            </View>
-
-          </Pressable>
-
-
-          {/* UPI */}
-
-          <Pressable
-            style={styles.paymentCard}
-            onPress={() =>
-              setPaymentMethod('upi')
-            }
-          >
-
-            <View
-              style={[
-                styles.paymentIcon,
-                styles.upiIcon,
-              ]}
-            >
-
-              <Text
-                style={styles.upiText}
-              >
-                UPI
-              </Text>
-
-            </View>
-
-
-            <View
-              style={styles.paymentContent}
-            >
-
-              <Text
-                style={styles.paymentName}
-              >
-                UPI
-              </Text>
-
-
-              <Text
-                style={styles.paymentSub}
-              >
-                Pay after the ride
-              </Text>
-
-            </View>
-
-
-            <View
-              style={[
-                styles.radio,
-
-                paymentMethod === 'upi' &&
-                  styles.radioActive,
-              ]}
-            >
-
-              {paymentMethod === 'upi' && (
                 <View
                   style={
-                    styles.radioInner
+                    styles.paymentContent
                   }
-                />
-              )}
+                >
+                  <Text
+                    style={
+                      styles.paymentName
+                    }
+                  >
+                    {title}
+                  </Text>
 
-            </View>
+                  <Text
+                    style={
+                      styles.paymentSub
+                    }
+                  >
+                    {subtitle}
+                  </Text>
+                </View>
 
-          </Pressable>
+                <View
+                  style={[
+                    styles.radio,
+                    paymentMethod ===
+                      value &&
+                      styles.radioActive,
+                  ]}
+                >
+                  {paymentMethod ===
+                    value && (
+                    <View
+                      style={
+                        styles.radioInner
+                      }
+                    />
+                  )}
+                </View>
+              </Pressable>
+            ),
+          )}
 
-          {/* ================================================================
-              PAYMENT SECTION END
-          ================================================================ */}
-
-
-          {/* ================================================================
-              NOTE SECTION START
-          ================================================================ */}
+          {/* NOTE */}
 
           <Text
             style={styles.noteTitle}
           >
             Note for riders
-
             <Text
               style={styles.optional}
             >
               {' '}
               (optional)
             </Text>
-
           </Text>
-
 
           <View
             style={styles.noteBox}
           >
-
             <Ionicons
               name="chatbox-outline"
               size={22}
               color={COLORS.gray}
             />
 
-
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder="e.g. I'm near the main road, call me when you arrive"
+              placeholder="e.g. I'm near the main road"
               placeholderTextColor={
                 COLORS.muted
               }
               style={styles.noteInput}
               multiline
               maxLength={160}
+              editable={!submitting}
             />
-
           </View>
 
-          {/* ================================================================
-              NOTE SECTION END
-          ================================================================ */}
-
-
-          {/* ================================================================
-              SEND BUTTON START
-          ================================================================ */}
+          {/* SEND */}
 
           <Pressable
             style={[
               styles.sendButton,
-
-              offerAmount <= 0 &&
+              (
+                offerAmount <= 0 ||
+                submitting
+              ) &&
                 styles.sendButtonDisabled,
             ]}
             onPress={
               handleSendRequest
             }
+            disabled={submitting}
           >
-
-            <View
-              style={styles.sendContent}
-            >
-
-              <Text
-                style={styles.sendTitle}
+            {submitting ? (
+              <View
+                style={styles.loadingRow}
               >
-                Send Request to Riders
-              </Text>
+                <ActivityIndicator
+                  color={COLORS.white}
+                />
 
+                <Text
+                  style={
+                    styles.loadingText
+                  }
+                >
+                  Requesting ride...
+                </Text>
+              </View>
+            ) : (
+              <>
+                <View
+                  style={styles.sendContent}
+                >
+                  <Text
+                    style={styles.sendTitle}
+                  >
+                    Send Request to Riders
+                  </Text>
 
-              <Text
-                style={styles.sendSubtitle}
-              >
-                Riders near you will receive your offer
-              </Text>
+                  <Text
+                    style={
+                      styles.sendSubtitle
+                    }
+                  >
+                    Nearby riders will receive your request
+                  </Text>
+                </View>
 
-            </View>
-
-
-            <Ionicons
-              name="arrow-forward"
-              size={36}
-              color={COLORS.white}
-            />
-
+                <Ionicons
+                  name="arrow-forward"
+                  size={36}
+                  color={COLORS.white}
+                />
+              </>
+            )}
           </Pressable>
-
-          {/* ================================================================
-              SEND BUTTON END
-          ================================================================ */}
-
-
-          {/* ================================================================
-              SECURITY NOTICE START
-          ================================================================ */}
 
           <View
             style={styles.security}
           >
-
             <Ionicons
               name="shield-checkmark"
               size={21}
               color={COLORS.green}
             />
 
-
             <Text
               style={styles.securityText}
             >
-              Your details are safe and will be shared only after you choose a rider.
+              Your ride request is securely sent to the RIDEX backend.
             </Text>
-
           </View>
-
-          {/* ================================================================
-              SECURITY NOTICE END
-          ================================================================ */}
-
 
           <View
             style={styles.bottomSpace}
           />
-
         </ScrollView>
-
       </KeyboardAvoidingView>
-
     </SafeAreaView>
-
   );
 }
 
 /* =========================================================================
-   YOUR OFFER SCREEN END
-   ========================================================================= */
-
-
-/* =========================================================================
-   RIDEX STYLES START
+   STYLES
    ========================================================================= */
 
 const styles =
   StyleSheet.create({
-
-    /* ---------------------------------------------------------------------
-       SCREEN
-       --------------------------------------------------------------------- */
-
     safeArea: {
       flex: 1,
       backgroundColor:
@@ -1371,11 +1184,6 @@ const styles =
       paddingTop: 5,
       paddingBottom: 35,
     },
-
-
-    /* ---------------------------------------------------------------------
-       HEADER
-       --------------------------------------------------------------------- */
 
     header: {
       minHeight: 82,
@@ -1420,34 +1228,12 @@ const styles =
       color: COLORS.gray,
     },
 
-
-    /* ---------------------------------------------------------------------
-       TRIP CARD
-       --------------------------------------------------------------------- */
-
     tripCard: {
       backgroundColor: COLORS.white,
       borderRadius: 23,
       padding: 18,
       marginBottom: 15,
-
-      shadowColor: '#000',
-      shadowOpacity: 0.07,
-      shadowRadius: 12,
-      shadowOffset: {
-        width: 0,
-        height: 4,
-      },
-
       elevation: 3,
-    },
-
-    tripHeaderRow: {
-      flexDirection: 'row',
-    },
-
-    tripLocations: {
-      flex: 1,
     },
 
     locationRow: {
@@ -1465,7 +1251,8 @@ const styles =
       width: 24,
       height: 24,
       borderRadius: 12,
-      backgroundColor: COLORS.green,
+      backgroundColor:
+        COLORS.green,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1474,7 +1261,8 @@ const styles =
       width: 8,
       height: 8,
       borderRadius: 4,
-      backgroundColor: COLORS.white,
+      backgroundColor:
+        COLORS.white,
     },
 
     dashedLine: {
@@ -1490,7 +1278,8 @@ const styles =
       width: 25,
       height: 25,
       borderRadius: 14,
-      backgroundColor: COLORS.red,
+      backgroundColor:
+        COLORS.red,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1525,27 +1314,10 @@ const styles =
       color: COLORS.gray,
     },
 
-    editButton: {
-      height: 52,
-      paddingHorizontal: 14,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: COLORS.border,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 7,
-      backgroundColor: COLORS.white,
-    },
-
-    editText: {
-      fontSize: 14,
-      fontWeight: '700',
-      color: COLORS.black,
-    },
-
     divider: {
       height: 1,
-      backgroundColor: COLORS.border,
+      backgroundColor:
+        COLORS.border,
       marginTop: 3,
       marginBottom: 14,
     },
@@ -1572,18 +1344,15 @@ const styles =
     statDivider: {
       width: 1,
       height: 25,
-      backgroundColor: COLORS.border,
+      backgroundColor:
+        COLORS.border,
     },
-
-
-    /* ---------------------------------------------------------------------
-       SUGGESTED FARE CARD
-       --------------------------------------------------------------------- */
 
     suggestedCard: {
       minHeight: 190,
       borderRadius: 23,
-      backgroundColor: COLORS.greenVerySoft,
+      backgroundColor:
+        COLORS.greenVerySoft,
       padding: 19,
       marginBottom: 19,
       overflow: 'hidden',
@@ -1620,7 +1389,8 @@ const styles =
       paddingHorizontal: 9,
       paddingVertical: 8,
       borderRadius: 9,
-      backgroundColor: COLORS.yellowSoft,
+      backgroundColor:
+        COLORS.yellowSoft,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 7,
@@ -1634,39 +1404,23 @@ const styles =
       color: COLORS.black,
     },
 
-
-    /* ---------------------------------------------------------------------
-       REAL OFFER ARTWORK
-       --------------------------------------------------------------------- */
-
     cityAsset: {
       position: 'absolute',
-
       width: 250,
       height: 145,
-
       right: -48,
       bottom: -2,
-
       zIndex: 1,
     },
 
     scooterAsset: {
       position: 'absolute',
-
       width: 170,
       height: 135,
-
       right: -3,
       bottom: 6,
-
       zIndex: 2,
     },
-
-
-    /* ---------------------------------------------------------------------
-       OFFER INPUT
-       --------------------------------------------------------------------- */
 
     sectionTitle: {
       marginBottom: 12,
@@ -1677,14 +1431,17 @@ const styles =
 
     offerBox: {
       minHeight: 78,
-      backgroundColor: COLORS.white,
+      backgroundColor:
+        COLORS.white,
       borderRadius: 17,
       borderWidth: 1.5,
-      borderColor: COLORS.border,
+      borderColor:
+        COLORS.border,
       paddingHorizontal: 17,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent:
+        'space-between',
     },
 
     offerBoxActive: {
@@ -1725,11 +1482,6 @@ const styles =
       fontWeight: '700',
     },
 
-
-    /* ---------------------------------------------------------------------
-       QUICK AMOUNTS
-       --------------------------------------------------------------------- */
-
     quickRow: {
       gap: 9,
       paddingTop: 12,
@@ -1742,14 +1494,17 @@ const styles =
       paddingHorizontal: 14,
       borderRadius: 14,
       borderWidth: 1.5,
-      borderColor: COLORS.border,
-      backgroundColor: COLORS.white,
+      borderColor:
+        COLORS.border,
+      backgroundColor:
+        COLORS.white,
       alignItems: 'center',
       justifyContent: 'center',
     },
 
     quickButtonActive: {
-      backgroundColor: COLORS.greenSoft,
+      backgroundColor:
+        COLORS.greenSoft,
       borderColor: '#BCE7CF',
     },
 
@@ -1764,46 +1519,8 @@ const styles =
       fontWeight: '800',
     },
 
-
-    /* ---------------------------------------------------------------------
-       LOW OFFER TIP
-       --------------------------------------------------------------------- */
-
-    tipCard: {
-      minHeight: 83,
-      marginTop: 12,
-      marginBottom: 22,
-      padding: 14,
-      borderRadius: 15,
-      backgroundColor: COLORS.blueSoft,
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-    },
-
-    tipContent: {
-      flex: 1,
-      marginLeft: 10,
-    },
-
-    tipTitle: {
-      fontSize: 15,
-      fontWeight: '800',
-      color: COLORS.black,
-    },
-
-    tipText: {
-      marginTop: 5,
-      fontSize: 13,
-      lineHeight: 18,
-      color: COLORS.gray,
-    },
-
-
-    /* ---------------------------------------------------------------------
-       PAYMENT
-       --------------------------------------------------------------------- */
-
     paymentTitle: {
+      marginTop: 20,
       marginBottom: 10,
       fontSize: 17,
       fontWeight: '800',
@@ -1816,8 +1533,10 @@ const styles =
       paddingHorizontal: 13,
       borderRadius: 15,
       borderWidth: 1,
-      borderColor: COLORS.border,
-      backgroundColor: COLORS.white,
+      borderColor:
+        COLORS.border,
+      backgroundColor:
+        COLORS.white,
       flexDirection: 'row',
       alignItems: 'center',
     },
@@ -1826,20 +1545,10 @@ const styles =
       width: 43,
       height: 43,
       borderRadius: 22,
-      backgroundColor: COLORS.greenSoft,
+      backgroundColor:
+        COLORS.greenSoft,
       alignItems: 'center',
       justifyContent: 'center',
-    },
-
-    upiIcon: {
-      backgroundColor: '#F4F4F4',
-    },
-
-    upiText: {
-      fontSize: 11,
-      fontWeight: '800',
-      fontStyle: 'italic',
-      color: COLORS.gray,
     },
 
     paymentContent: {
@@ -1877,13 +1586,9 @@ const styles =
       width: 13,
       height: 13,
       borderRadius: 7,
-      backgroundColor: COLORS.green,
+      backgroundColor:
+        COLORS.green,
     },
-
-
-    /* ---------------------------------------------------------------------
-       NOTE
-       --------------------------------------------------------------------- */
 
     noteTitle: {
       marginTop: 13,
@@ -1905,8 +1610,10 @@ const styles =
       paddingVertical: 10,
       borderRadius: 15,
       borderWidth: 1,
-      borderColor: COLORS.border,
-      backgroundColor: COLORS.white,
+      borderColor:
+        COLORS.border,
+      backgroundColor:
+        COLORS.white,
       flexDirection: 'row',
       alignItems: 'center',
     },
@@ -1918,23 +1625,21 @@ const styles =
       fontSize: 14,
       lineHeight: 20,
       color: COLORS.black,
-      textAlignVertical: 'center',
+      textAlignVertical:
+        'center',
     },
-
-
-    /* ---------------------------------------------------------------------
-       SEND BUTTON
-       --------------------------------------------------------------------- */
 
     sendButton: {
       minHeight: 104,
       marginBottom: 17,
       paddingHorizontal: 18,
       borderRadius: 20,
-      backgroundColor: COLORS.green,
+      backgroundColor:
+        COLORS.green,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent:
+        'space-between',
     },
 
     sendButtonDisabled: {
@@ -1959,17 +1664,27 @@ const styles =
       color: COLORS.white,
     },
 
+    loadingRow: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+    },
 
-    /* ---------------------------------------------------------------------
-       SECURITY
-       --------------------------------------------------------------------- */
+    loadingText: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: COLORS.white,
+    },
 
     security: {
       minHeight: 64,
       paddingHorizontal: 14,
       paddingVertical: 11,
       borderRadius: 16,
-      backgroundColor: COLORS.blueSoft,
+      backgroundColor:
+        COLORS.blueSoft,
       flexDirection: 'row',
       alignItems: 'center',
     },
@@ -1983,17 +1698,7 @@ const styles =
       color: '#355B80',
     },
 
-
-    /* ---------------------------------------------------------------------
-       BOTTOM
-       --------------------------------------------------------------------- */
-
     bottomSpace: {
       height: 30,
     },
-
   });
-
-/* =========================================================================
-   RIDEX STYLES END
-   ========================================================================= */
